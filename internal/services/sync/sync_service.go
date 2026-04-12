@@ -61,6 +61,7 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 
 	s.log.Info().Int("count", len(customers)).Str("shop", merchant.ShopDomain).Msg("sync: fetched customers")
 
+	activeIDs := make([]int64, 0, len(customers))
 	for _, sc := range customers {
 		addrJSON := buildAddressJSON(sc)
 		tags := parseTags(sc.Tags)
@@ -80,7 +81,16 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 
 		if err := s.customerCacheRepo.Upsert(ctx, cache); err != nil {
 			s.log.Warn().Err(err).Int64("shopify_id", sc.ID).Msg("sync: upsert failed, skipping")
+		} else {
+			activeIDs = append(activeIDs, sc.ID)
 		}
+	}
+
+	// Remove cached customers that no longer exist in Shopify (merged or deleted).
+	if removed, err := s.customerCacheRepo.DeleteStaleEntries(ctx, merchantID, activeIDs); err != nil {
+		s.log.Warn().Err(err).Msg("sync: stale entry cleanup failed")
+	} else if removed > 0 {
+		s.log.Info().Int64("removed", removed).Msg("sync: removed stale customer cache entries")
 	}
 
 	return len(customers), nil

@@ -15,6 +15,10 @@ type CustomerCacheRepository interface {
 	FindByMerchant(ctx context.Context, merchantID uuid.UUID) ([]models.CustomerCache, error)
 	FindByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) (*models.CustomerCache, error)
 	DeleteByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) error
+	// DeleteStaleEntries removes any cached customers for the merchant whose
+	// Shopify ID is NOT in the provided set — used after a full sync to purge
+	// customers that were merged or deleted in Shopify.
+	DeleteStaleEntries(ctx context.Context, merchantID uuid.UUID, activeShopifyIDs []int64) (int64, error)
 }
 
 type customerCacheRepo struct {
@@ -85,4 +89,22 @@ func (r *customerCacheRepo) DeleteByShopifyID(ctx context.Context, merchantID uu
 		return fmt.Errorf("customer cache delete: %w", err)
 	}
 	return nil
+}
+
+func (r *customerCacheRepo) DeleteStaleEntries(ctx context.Context, merchantID uuid.UUID, activeShopifyIDs []int64) (int64, error) {
+	if len(activeShopifyIDs) == 0 {
+		// Safety guard: never wipe the entire cache if the sync returned nothing.
+		return 0, nil
+	}
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM customer_cache
+		 WHERE merchant_id = $1
+		   AND shopify_customer_id != ALL($2)`,
+		merchantID, activeShopifyIDs,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("customer cache delete stale: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
