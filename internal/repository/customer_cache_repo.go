@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 
 	"merger/backend/internal/models"
 )
@@ -100,7 +101,7 @@ func (r *customerCacheRepo) DeleteStaleEntries(ctx context.Context, merchantID u
 		`DELETE FROM customer_cache
 		 WHERE merchant_id = $1
 		   AND shopify_customer_id != ALL($2)`,
-		merchantID, activeShopifyIDs,
+		merchantID, pq.Array(activeShopifyIDs),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("customer cache delete stale: %w", err)

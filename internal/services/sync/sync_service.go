@@ -87,10 +87,11 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 	}
 
 	// Remove cached customers that no longer exist in Shopify (merged or deleted).
-	if removed, err := s.customerCacheRepo.DeleteStaleEntries(ctx, merchantID, activeIDs); err != nil {
-		s.log.Warn().Err(err).Msg("sync: stale entry cleanup failed")
-	} else if removed > 0 {
-		s.log.Info().Int64("removed", removed).Msg("sync: removed stale customer cache entries")
+	removed, err := s.customerCacheRepo.DeleteStaleEntries(ctx, merchantID, activeIDs)
+	if err != nil {
+		s.log.Error().Err(err).Msg("sync: stale entry cleanup failed")
+	} else {
+		s.log.Info().Int64("removed", removed).Int("active", len(activeIDs)).Msg("sync: stale entry cleanup complete")
 	}
 
 	return len(customers), nil
