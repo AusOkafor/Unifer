@@ -189,12 +189,12 @@ type MergeResult struct {
 }
 
 // Merge calls Shopify's customerMerge GraphQL mutation.
-// This is the ONLY merge mechanism — no order reassignment needed as Shopify handles it.
-// The merge is asynchronous on Shopify's side; resultingCustomerId is the surviving customer GID.
+// primaryGID's data (name, email, phone, address) is preserved on the surviving record
+// via overrideFields regardless of which customer ID Shopify chooses to keep.
 func (s *CustomerService) Merge(ctx context.Context, primaryGID, secondaryGID string) (*MergeResult, error) {
 	mutation := `
-		mutation customerMerge($customerOneId: ID!, $customerTwoId: ID!) {
-			customerMerge(customerOneId: $customerOneId, customerTwoId: $customerTwoId) {
+		mutation customerMerge($customerOneId: ID!, $customerTwoId: ID!, $overrideFields: CustomerMergeOverrideFields) {
+			customerMerge(customerOneId: $customerOneId, customerTwoId: $customerTwoId, overrideFields: $overrideFields) {
 				resultingCustomerId
 				job {
 					id
@@ -211,6 +211,13 @@ func (s *CustomerService) Merge(ctx context.Context, primaryGID, secondaryGID st
 	variables := map[string]interface{}{
 		"customerOneId": primaryGID,
 		"customerTwoId": secondaryGID,
+		"overrideFields": map[string]interface{}{
+			"customerIdOfFirstNameToKeep":       primaryGID,
+			"customerIdOfLastNameToKeep":        primaryGID,
+			"customerIdOfEmailToKeep":           primaryGID,
+			"customerIdOfPhoneNumberToKeep":     primaryGID,
+			"customerIdOfDefaultAddressToKeep":  primaryGID,
+		},
 	}
 
 	var data struct {
