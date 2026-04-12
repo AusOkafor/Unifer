@@ -31,7 +31,7 @@ func (c *OAuthConfig) GenerateInstallURL(shop, state string) string {
 	if scopes == "" {
 		scopes = DefaultScopes
 	}
-	redirectURI := c.AppURL + "/auth/shopify/callback"
+	redirectURI := strings.TrimRight(c.AppURL, "/") + "/auth/shopify/callback"
 	params := url.Values{
 		"client_id":    {c.APIKey},
 		"scope":        {scopes},
