@@ -22,26 +22,29 @@ type JobDispatcher interface {
 }
 
 type WebhookHandler struct {
-	shopifySecret    string
-	merchantRepo     repository.MerchantRepository
+	shopifySecret     string
+	merchantRepo      repository.MerchantRepository
 	customerCacheRepo repository.CustomerCacheRepository
-	jobDispatcher    JobDispatcher
-	log              zerolog.Logger
+	settingsRepo      repository.SettingsRepository
+	jobDispatcher     JobDispatcher
+	log               zerolog.Logger
 }
 
 func NewWebhookHandler(
 	shopifySecret string,
 	merchantRepo repository.MerchantRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
+	settingsRepo repository.SettingsRepository,
 	jobDispatcher JobDispatcher,
 	log zerolog.Logger,
 ) *WebhookHandler {
 	return &WebhookHandler{
-		shopifySecret:    shopifySecret,
-		merchantRepo:     merchantRepo,
+		shopifySecret:     shopifySecret,
+		merchantRepo:      merchantRepo,
 		customerCacheRepo: customerCacheRepo,
-		jobDispatcher:    jobDispatcher,
-		log:              log,
+		settingsRepo:      settingsRepo,
+		jobDispatcher:     jobDispatcher,
+		log:               log,
 	}
 }
 
@@ -118,8 +121,15 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 		return
 	}
 
-	// Dispatch a duplicate detection job (debounced — only if none already pending)
-	if h.jobDispatcher != nil {
+	// Dispatch a duplicate detection job only if auto-detection is enabled
+	// in merchant settings (default: true if settings not yet saved).
+	autoDetect := true
+	if h.settingsRepo != nil {
+		if s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+			autoDetect = s.AutoDetect
+		}
+	}
+	if autoDetect && h.jobDispatcher != nil {
 		if _, err := h.jobDispatcher.Dispatch(
 			c.Request.Context(),
 			models.JobTypeDetectDuplicates,

@@ -17,17 +17,20 @@ import (
 type DuplicateHandler struct {
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
+	settingsRepo      repository.SettingsRepository
 	log               zerolog.Logger
 }
 
 func NewDuplicateHandler(
 	duplicateRepo repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
+	settingsRepo repository.SettingsRepository,
 	log zerolog.Logger,
 ) *DuplicateHandler {
 	return &DuplicateHandler{
 		duplicateRepo:     duplicateRepo,
 		customerCacheRepo: customerCacheRepo,
+		settingsRepo:      settingsRepo,
 		log:               log,
 	}
 }
@@ -46,7 +49,16 @@ func (h *DuplicateHandler) List(c *gin.Context) {
 		offset = o
 	}
 
-	groups, total, err := h.duplicateRepo.ListByMerchant(c.Request.Context(), merchant.ID, status, limit, offset)
+	// Apply the merchant's confidence threshold from settings.
+	// Default to 0 (show all) if settings haven't been saved yet.
+	minConfidence := 0.0
+	if h.settingsRepo != nil {
+		if s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+			minConfidence = float64(s.ConfidenceThreshold) / 100.0
+		}
+	}
+
+	groups, total, err := h.duplicateRepo.ListByMerchant(c.Request.Context(), merchant.ID, status, minConfidence, limit, offset)
 	if err != nil {
 		h.log.Error().Err(err).Msg("list duplicates")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list duplicates"})

@@ -13,7 +13,7 @@ import (
 type DuplicateRepository interface {
 	CreateGroup(ctx context.Context, g *models.DuplicateGroup) error
 	DeletePendingByMerchant(ctx context.Context, merchantID uuid.UUID) (int64, error)
-	ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, limit, offset int) ([]models.DuplicateGroup, int, error)
+	ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, minConfidence float64, limit, offset int) ([]models.DuplicateGroup, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 }
@@ -61,7 +61,7 @@ func (r *duplicateRepo) DeletePendingByMerchant(ctx context.Context, merchantID 
 	return n, nil
 }
 
-func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, limit, offset int) ([]models.DuplicateGroup, int, error) {
+func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, minConfidence float64, limit, offset int) ([]models.DuplicateGroup, int, error) {
 	var groups []models.DuplicateGroup
 	var total int
 
@@ -78,6 +78,13 @@ func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID
 	default:
 		baseWhere += fmt.Sprintf(` AND status = $%d`, argIdx)
 		args = append(args, status)
+		argIdx++
+	}
+
+	// Apply merchant's confidence threshold (0 = no filter).
+	if minConfidence > 0 {
+		baseWhere += fmt.Sprintf(` AND confidence_score >= $%d`, argIdx)
+		args = append(args, minConfidence)
 		argIdx++
 	}
 

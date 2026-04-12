@@ -107,7 +107,7 @@ func main() {
 	// --- Handlers ---
 	h := &server.Handlers{
 		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.JWTSecret, cfg.FrontendURL, log),
-		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, log),
+		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, settingsRepo, log),
 		Merge:     handlers.NewMergeHandler(mergeRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),
 		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, dispatcher, log),
@@ -118,6 +118,7 @@ func main() {
 			cfg.ShopifyWebhookSecret,
 			merchantRepo,
 			customerCacheRepo,
+			settingsRepo,
 			dispatcher,
 			log,
 		),
