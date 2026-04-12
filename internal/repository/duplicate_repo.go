@@ -12,6 +12,7 @@ import (
 
 type DuplicateRepository interface {
 	CreateGroup(ctx context.Context, g *models.DuplicateGroup) error
+	DeletePendingByMerchant(ctx context.Context, merchantID uuid.UUID) (int64, error)
 	ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, limit, offset int) ([]models.DuplicateGroup, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -44,6 +45,18 @@ func (r *duplicateRepo) CreateGroup(ctx context.Context, g *models.DuplicateGrou
 		return rows.Scan(&g.ID, &g.CreatedAt)
 	}
 	return nil
+}
+
+func (r *duplicateRepo) DeletePendingByMerchant(ctx context.Context, merchantID uuid.UUID) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM duplicate_groups WHERE merchant_id = $1 AND status = 'pending'`,
+		merchantID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete pending groups: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, limit, offset int) ([]models.DuplicateGroup, int, error) {

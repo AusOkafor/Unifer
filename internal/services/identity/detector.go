@@ -59,6 +59,14 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 
 	d.log.Info().Int("count", len(customers)).Str("merchant", merchantID.String()).Msg("running detection")
 
+	// Clear stale pending groups before rebuilding — ensures merged/deleted
+	// customers don't produce ghost groups on re-scan.
+	if deleted, err := d.duplicateRepo.DeletePendingByMerchant(ctx, merchantID); err != nil {
+		d.log.Warn().Err(err).Msg("detection: failed to clear pending groups")
+	} else if deleted > 0 {
+		d.log.Info().Int64("deleted", deleted).Msg("detection: cleared stale pending groups")
+	}
+
 	// Build an index so we can look up full CustomerCache rows by Shopify ID.
 	customerByID := make(map[int64]*models.CustomerCache, len(customers))
 	for i := range customers {
