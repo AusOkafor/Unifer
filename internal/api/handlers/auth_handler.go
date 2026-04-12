@@ -3,7 +3,9 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -53,8 +55,10 @@ func (h *AuthHandler) HandleInstall(c *gin.Context) {
 	}
 
 	state := generateState()
-	// Store state in a short-lived cookie to verify on callback
-	c.SetCookie("oauth_state", state, 300, "/", "", false, true)
+	// SameSite=None + Secure required for cross-origin cookie to survive the
+	// Shopify redirect back to the callback URL.
+	c.SetSameSite(http.SameSiteNoneMode)
+	c.SetCookie("oauth_state", state, 300, "/", "", true, true)
 
 	installURL := h.oauthCfg.GenerateInstallURL(shop, state)
 	c.Redirect(http.StatusTemporaryRedirect, installURL)
@@ -114,8 +118,15 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("session", sessionToken, int(7*24*time.Hour/time.Second), "/", "", false, true)
-	c.Redirect(http.StatusTemporaryRedirect, h.frontendURL)
+	// SameSite=None + Secure so the session cookie is sent on cross-origin
+	// requests from the Vercel frontend to the Render backend.
+	c.SetSameSite(http.SameSiteNoneMode)
+	c.SetCookie("session", sessionToken, int(7*24*time.Hour/time.Second), "/", "", true, true)
+
+	// Pass shop and token to the frontend so it can store them for API calls.
+	redirectURL := fmt.Sprintf("%s?shop=%s&token=%s",
+		strings.TrimRight(h.frontendURL, "/"), shop, sessionToken)
+	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
 func (h *AuthHandler) issueJWT(merchantID uuid.UUID, shop string) (string, error) {
