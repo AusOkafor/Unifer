@@ -54,25 +54,116 @@ type customerResponse struct {
 	Customer ShopifyCustomer `json:"customer"`
 }
 
-// FetchAll retrieves all customers for the shop using cursor-based pagination.
+// FetchAll retrieves all customers using the GraphQL Admin API with cursor-based
+// pagination. GraphQL does not require the protected customer data REST approval.
 func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, error) {
-	var all []ShopifyCustomer
-	path := "/customers.json?limit=250&fields=id,email,first_name,last_name,phone,tags,note,addresses,orders_count,total_spent,state,created_at,updated_at"
+	const query = `
+		query fetchCustomers($first: Int!, $after: String) {
+			customers(first: $first, after: $after) {
+				edges {
+					node {
+						legacyResourceId
+						firstName
+						lastName
+						email
+						phone
+						tags
+						numberOfOrders
+						amountSpent { amount }
+						defaultAddress {
+							address1
+							city
+							province
+							zip
+							country
+						}
+					}
+				}
+				pageInfo {
+					hasNextPage
+					endCursor
+				}
+			}
+		}`
 
-	for path != "" {
-		var resp customerListResponse
-		if err := s.client.doREST(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	type gqlAddress struct {
+		Address1 string `json:"address1"`
+		City     string `json:"city"`
+		Province string `json:"province"`
+		Zip      string `json:"zip"`
+		Country  string `json:"country"`
+	}
+	type gqlCustomer struct {
+		LegacyResourceID string     `json:"legacyResourceId"`
+		FirstName        string     `json:"firstName"`
+		LastName         string     `json:"lastName"`
+		Email            string     `json:"email"`
+		Phone            string     `json:"phone"`
+		Tags             []string   `json:"tags"`
+		NumberOfOrders   string     `json:"numberOfOrders"`
+		AmountSpent      struct {
+			Amount string `json:"amount"`
+		} `json:"amountSpent"`
+		DefaultAddress *gqlAddress `json:"defaultAddress"`
+	}
+	type gqlResponse struct {
+		Customers struct {
+			Edges []struct {
+				Node gqlCustomer `json:"node"`
+			} `json:"edges"`
+			PageInfo struct {
+				HasNextPage bool   `json:"hasNextPage"`
+				EndCursor   string `json:"endCursor"`
+			} `json:"pageInfo"`
+		} `json:"customers"`
+	}
+
+	var all []ShopifyCustomer
+	var cursor *string
+
+	for {
+		vars := map[string]interface{}{"first": 250}
+		if cursor != nil {
+			vars["after"] = *cursor
+		}
+
+		var resp gqlResponse
+		if err := s.client.doGraphQL(ctx, query, vars, &resp); err != nil {
 			return nil, fmt.Errorf("fetch customers page: %w", err)
 		}
-		all = append(all, resp.Customers...)
 
-		// Cursor-based pagination uses Link headers; for simplicity with doREST
-		// we use since_id pagination (simpler and sufficient for bulk sync)
-		if len(resp.Customers) < 250 {
+		for _, edge := range resp.Customers.Edges {
+			n := edge.Node
+			id, _ := strconv.ParseInt(n.LegacyResourceID, 10, 64)
+			ordersCount, _ := strconv.Atoi(n.NumberOfOrders)
+
+			sc := ShopifyCustomer{
+				ID:          id,
+				FirstName:   n.FirstName,
+				LastName:    n.LastName,
+				Email:       n.Email,
+				Phone:       n.Phone,
+				Tags:        strings.Join(n.Tags, ","),
+				OrdersCount: ordersCount,
+				TotalSpent:  n.AmountSpent.Amount,
+			}
+			if n.DefaultAddress != nil {
+				sc.Addresses = []Address{{
+					Address1: n.DefaultAddress.Address1,
+					City:     n.DefaultAddress.City,
+					Province: n.DefaultAddress.Province,
+					Zip:      n.DefaultAddress.Zip,
+					Country:  n.DefaultAddress.Country,
+				}}
+			}
+			all = append(all, sc)
+		}
+
+		if !resp.Customers.PageInfo.HasNextPage {
 			break
 		}
-		lastID := resp.Customers[len(resp.Customers)-1].ID
-		path = fmt.Sprintf("/customers.json?limit=250&since_id=%d&fields=id,email,first_name,last_name,phone,tags,note,addresses,orders_count,total_spent,state,created_at,updated_at", lastID)
+		c := resp.Customers.PageInfo.EndCursor
+		cursor = &c
 	}
 
 	return all, nil
