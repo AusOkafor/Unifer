@@ -33,6 +33,8 @@ func (r *duplicateRepo) CreateGroup(ctx context.Context, g *models.DuplicateGrou
 		VALUES
 			(:merchant_id, :group_hash, :customer_ids, :confidence_score, :status, :readiness_score, :intelligence_json)
 		ON CONFLICT (merchant_id, group_hash) WHERE status != 'merged' DO UPDATE SET
+			confidence_score  = EXCLUDED.confidence_score,
+			customer_ids      = EXCLUDED.customer_ids,
 			readiness_score   = EXCLUDED.readiness_score,
 			intelligence_json = EXCLUDED.intelligence_json
 		RETURNING id, created_at`
