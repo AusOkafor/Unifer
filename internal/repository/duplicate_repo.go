@@ -58,6 +58,9 @@ func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID
 		baseWhere += fmt.Sprintf(` AND status = $%d`, argIdx)
 		args = append(args, status)
 		argIdx++
+	} else {
+		// Default: exclude merged groups so the list only shows actionable items.
+		baseWhere += ` AND status != 'merged'`
 	}
 
 	err := r.db.GetContext(ctx, &total,
