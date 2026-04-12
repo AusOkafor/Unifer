@@ -133,6 +133,17 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 				a := &customers[indices[i]]
 				b := &customers[indices[j]]
 				s := ScorePair(a, b)
+				d.log.Debug().
+					Int64("a", a.ShopifyCustomerID).
+					Int64("b", b.ShopifyCustomerID).
+					Str("aName", a.Name).
+					Str("bName", b.Name).
+					Float64("email", s.EmailSim).
+					Float64("name", s.NameSim).
+					Float64("phone", s.PhoneSim).
+					Float64("addr", s.AddressSim).
+					Float64("combined", s.Combined).
+					Msg("bucket pair score")
 				if s.Combined >= MinConfidence {
 					pairs = append(pairs, ScoredPair{
 						A:     a.ShopifyCustomerID,
@@ -162,8 +173,24 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 				}
 				seen[key] = true
 				nameSim := jaroWinkler(a.Name, b.Name)
+				d.log.Debug().
+					Int64("a", a.ShopifyCustomerID).
+					Int64("b", b.ShopifyCustomerID).
+					Str("aName", a.Name).
+					Str("bName", b.Name).
+					Float64("nameSim", nameSim).
+					Msg("cross-domain name check")
 				if nameSim >= 0.82 { // high name similarity → score the full pair
 					s := ScorePair(a, b)
+					d.log.Debug().
+						Int64("a", a.ShopifyCustomerID).
+						Int64("b", b.ShopifyCustomerID).
+						Float64("email", s.EmailSim).
+						Float64("name", s.NameSim).
+						Float64("phone", s.PhoneSim).
+						Float64("addr", s.AddressSim).
+						Float64("combined", s.Combined).
+						Msg("cross-domain pair score")
 					if s.Combined >= MinConfidence {
 						pairs = append(pairs, ScoredPair{
 							A:     a.ShopifyCustomerID,

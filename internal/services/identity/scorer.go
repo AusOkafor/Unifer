@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 
@@ -61,19 +62,40 @@ func addressSimilarity(a, b *models.CustomerCache) float64 {
 	return levenshteinSim(addrA, addrB)
 }
 
+// extractAddress parses the address JSON and returns a canonical normalized
+// string built from address1+city+zip so that map key ordering differences
+// (Go map marshaling is non-deterministic) don't cause false mismatches.
 func extractAddress(c *models.CustomerCache) string {
 	if len(c.AddressJSON) == 0 {
 		return ""
 	}
-	// Build a comparable string from the JSON map without importing encoding/json
-	// by treating it as a raw string after trimming braces and quotes.
 	raw := strings.TrimSpace(string(c.AddressJSON))
 	if raw == "{}" || raw == "null" || raw == "" {
 		return ""
 	}
-	// Normalize: lowercase, remove punctuation noise
-	raw = strings.ToLower(raw)
-	return raw
+
+	var m map[string]string
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		// Fallback: lowercase raw string comparison
+		return strings.ToLower(raw)
+	}
+
+	normalize := func(s string) string {
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+
+	address1 := normalize(m["address1"])
+	city := normalize(m["city"])
+	zip := normalize(m["zip"])
+	province := normalize(m["province"])
+	country := normalize(m["country"])
+
+	// Return empty if every meaningful field is empty
+	if address1 == "" && city == "" && zip == "" {
+		return ""
+	}
+
+	return address1 + "|" + city + "|" + zip + "|" + province + "|" + country
 }
 
 // emailSimilarity returns a similarity score for two normalized email addresses.
