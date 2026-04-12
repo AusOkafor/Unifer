@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	DefaultScopes = "read_customers,write_customers,read_orders,write_orders"
+	DefaultScopes = "read_customers,write_customers,write_customer_merge,read_orders,write_orders"
 )
 
 type OAuthConfig struct {
