@@ -21,12 +21,14 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	// AutomaticEnv must be called before ReadInConfig so that real environment
+	// variables (e.g. on Render) are always preferred over a .env file.
+	viper.AutomaticEnv()
+
 	viper.SetConfigFile(".env")
 	viper.SetConfigType("env")
 	// Read .env file if present; ignore error if missing (env vars suffice)
 	_ = viper.ReadInConfig()
-
-	viper.AutomaticEnv()
 
 	// Defaults
 	viper.SetDefault("PORT", "3000")
