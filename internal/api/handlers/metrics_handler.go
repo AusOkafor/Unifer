@@ -92,7 +92,7 @@ func (h *MetricsHandler) loadRecentActivity(ctx context.Context, merchantID stri
 		FROM merge_records WHERE merchant_id = $1
 		UNION ALL
 		SELECT id::text, 'scan' as type,
-		       'Duplicate scan — type: ' || type as description,
+		       'Duplicate scan completed' as description,
 		       created_at
 		FROM jobs WHERE merchant_id = $1 AND type = 'detect_duplicates'
 		  AND status = 'completed'
