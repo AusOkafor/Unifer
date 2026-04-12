@@ -21,6 +21,7 @@ type Handlers struct {
 	Snapshot  *handlers.SnapshotHandler
 	Metrics   *handlers.MetricsHandler
 	Settings  *handlers.SettingsHandler
+	Scan      *handlers.ScanHandler
 	Webhook   *handlers.WebhookHandler
 }
 
@@ -111,6 +112,12 @@ func (s *Server) registerRoutes() {
 		api.GET("/metrics/dashboard", s.h.Metrics.Dashboard)
 	} else {
 		api.GET("/metrics/dashboard", s.stub("metrics: dashboard"))
+	}
+
+	if s.h.Scan != nil {
+		api.POST("/scan", s.h.Scan.Trigger)
+	} else {
+		api.POST("/scan", s.stub("scan: trigger"))
 	}
 
 	if s.h.Settings != nil {

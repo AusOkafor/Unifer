@@ -13,7 +13,13 @@ import (
 	"merger/backend/internal/services/identity"
 	mergesvc "merger/backend/internal/services/merge"
 	snapshotsvc "merger/backend/internal/services/snapshot"
+	syncsvc "merger/backend/internal/services/sync"
 )
+
+// SyncPayload is the job payload for sync_customers jobs.
+type SyncPayload struct {
+	MerchantID string `json:"merchant_id"`
+}
 
 // DetectPayload is the job payload for detect_duplicates jobs.
 type DetectPayload struct {
@@ -40,7 +46,9 @@ type Processor struct {
 	detector     *identity.Detector
 	orchestrator *mergesvc.Orchestrator
 	snapshotSvc  *snapshotsvc.Service
+	syncSvc      *syncsvc.Service
 	jobRepo      repository.JobRepository
+	dispatcher   *Dispatcher
 	log          zerolog.Logger
 }
 
@@ -48,14 +56,18 @@ func NewProcessor(
 	detector *identity.Detector,
 	orchestrator *mergesvc.Orchestrator,
 	snapshotSvc *snapshotsvc.Service,
+	syncSvc *syncsvc.Service,
 	jobRepo repository.JobRepository,
+	dispatcher *Dispatcher,
 	log zerolog.Logger,
 ) *Processor {
 	return &Processor{
 		detector:     detector,
 		orchestrator: orchestrator,
 		snapshotSvc:  snapshotSvc,
+		syncSvc:      syncSvc,
 		jobRepo:      jobRepo,
+		dispatcher:   dispatcher,
 		log:          log,
 	}
 }
@@ -63,6 +75,8 @@ func NewProcessor(
 // Process dispatches the job to the appropriate handler based on type.
 func (p *Processor) Process(ctx context.Context, job *models.Job) error {
 	switch job.Type {
+	case models.JobTypeSyncCustomers:
+		return p.processSync(ctx, job)
 	case models.JobTypeDetectDuplicates:
 		return p.processDetect(ctx, job)
 	case models.JobTypeMergeCustomers:
@@ -72,6 +86,32 @@ func (p *Processor) Process(ctx context.Context, job *models.Job) error {
 	default:
 		return fmt.Errorf("unknown job type: %s", job.Type)
 	}
+}
+
+func (p *Processor) processSync(ctx context.Context, job *models.Job) error {
+	var payload SyncPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return fmt.Errorf("unmarshal sync payload: %w", err)
+	}
+	merchantID, err := uuid.Parse(payload.MerchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant id: %w", err)
+	}
+
+	count, err := p.syncSvc.SyncCustomers(ctx, merchantID)
+	if err != nil {
+		return fmt.Errorf("sync customers: %w", err)
+	}
+	p.log.Info().Int("count", count).Msg("sync: complete, queuing detection")
+
+	// Auto-trigger duplicate detection after sync.
+	if p.dispatcher != nil {
+		if _, err := p.dispatcher.Dispatch(ctx, models.JobTypeDetectDuplicates, merchantID,
+			map[string]string{"merchant_id": merchantID.String()}); err != nil {
+			p.log.Warn().Err(err).Msg("sync: failed to queue detect job")
+		}
+	}
+	return nil
 }
 
 func (p *Processor) processDetect(ctx context.Context, job *models.Job) error {

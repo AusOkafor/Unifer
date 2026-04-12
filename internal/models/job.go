@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	JobTypeSyncCustomers    = "sync_customers"
 	JobTypeDetectDuplicates = "detect_duplicates"
 	JobTypeMergeCustomers   = "merge_customers"
 	JobTypeRestoreSnapshot  = "restore_snapshot"

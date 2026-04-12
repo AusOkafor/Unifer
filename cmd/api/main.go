@@ -21,6 +21,7 @@ import (
 	mergesvc "merger/backend/internal/services/merge"
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
+	syncsvc "merger/backend/internal/services/sync"
 	"merger/backend/internal/utils"
 	"merger/backend/pkg/shopifyauth"
 )
@@ -106,19 +107,21 @@ func main() {
 	)
 	analyzer := intelligence.NewAnalyzer()
 	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, analyzer, log)
-	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, jobRepo, log)
+	syncService := syncsvc.NewService(merchantRepo, customerCacheRepo, encryptor, log)
+	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, log)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)
 
 	// --- Handlers ---
 	h := &server.Handlers{
-		Auth: handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.JWTSecret, cfg.FrontendURL, log),
+		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.JWTSecret, cfg.FrontendURL, log),
 		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, log),
 		Merge:     handlers.NewMergeHandler(mergeRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),
 		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, dispatcher, log),
 		Metrics:   handlers.NewMetricsHandler(sqlDB, log),
 		Settings:  handlers.NewSettingsHandler(settingsRepo, log),
-		Webhook:   handlers.NewWebhookHandler(
+		Scan:      handlers.NewScanHandler(dispatcher, log),
+		Webhook: handlers.NewWebhookHandler(
 			cfg.ShopifyWebhookSecret,
 			merchantRepo,
 			customerCacheRepo,
