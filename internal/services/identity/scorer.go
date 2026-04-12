@@ -13,11 +13,12 @@ type Score struct {
 	EmailSim   float64
 	NameSim    float64
 	PhoneSim   float64
+	AddressSim float64
 	Combined   float64
 }
 
 // ScorePair computes a combined similarity score between two cached customers.
-// Weights: email 40%, name 35%, phone 15%, phone bonus 10%.
+// Weights: email 35%, name 35%, phone 15%, address 15%.
 func ScorePair(a, b *models.CustomerCache) Score {
 	s := Score{}
 
@@ -35,15 +36,44 @@ func ScorePair(a, b *models.CustomerCache) Score {
 		if phoneA == phoneB {
 			s.PhoneSim = 1.0
 		} else {
-			// partial match if one is suffix of the other (local vs international format)
 			if strings.HasSuffix(phoneA, phoneB) || strings.HasSuffix(phoneB, phoneA) {
 				s.PhoneSim = 0.8
 			}
 		}
 	}
 
-	s.Combined = 0.40*s.EmailSim + 0.35*s.NameSim + 0.25*s.PhoneSim
+	s.AddressSim = addressSimilarity(a, b)
+
+	s.Combined = 0.35*s.EmailSim + 0.35*s.NameSim + 0.15*s.PhoneSim + 0.15*s.AddressSim
 	return s
+}
+
+// addressSimilarity compares the primary address fields of two customers.
+func addressSimilarity(a, b *models.CustomerCache) float64 {
+	addrA := extractAddress(a)
+	addrB := extractAddress(b)
+	if addrA == "" || addrB == "" {
+		return 0
+	}
+	if addrA == addrB {
+		return 1.0
+	}
+	return levenshteinSim(addrA, addrB)
+}
+
+func extractAddress(c *models.CustomerCache) string {
+	if len(c.AddressJSON) == 0 {
+		return ""
+	}
+	// Build a comparable string from the JSON map without importing encoding/json
+	// by treating it as a raw string after trimming braces and quotes.
+	raw := strings.TrimSpace(string(c.AddressJSON))
+	if raw == "{}" || raw == "null" || raw == "" {
+		return ""
+	}
+	// Normalize: lowercase, remove punctuation noise
+	raw = strings.ToLower(raw)
+	return raw
 }
 
 // emailSimilarity returns a similarity score for two normalized email addresses.

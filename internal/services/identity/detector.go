@@ -17,9 +17,10 @@ import (
 
 const (
 	// MinConfidence is the minimum score to consider a pair potentially duplicate.
-	MinConfidence = 0.30
+	MinConfidence = 0.25
 	// DefaultThreshold is the default cluster-formation threshold.
-	DefaultThreshold = 0.60
+	// Lowered to 0.45 so name+address matches (no email) are captured.
+	DefaultThreshold = 0.45
 )
 
 type Detector struct {
@@ -161,7 +162,7 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 				}
 				seen[key] = true
 				nameSim := jaroWinkler(a.Name, b.Name)
-				if nameSim >= 0.92 { // high name similarity → score the full pair
+				if nameSim >= 0.82 { // high name similarity → score the full pair
 					s := ScorePair(a, b)
 					if s.Combined >= MinConfidence {
 						pairs = append(pairs, ScoredPair{
