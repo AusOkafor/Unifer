@@ -96,7 +96,7 @@ func (h *MetricsHandler) loadRecentActivity(ctx context.Context, merchantID stri
 		       created_at
 		FROM jobs WHERE merchant_id = $1 AND type = 'detect_duplicates'
 		  AND status = 'completed'
-		ORDER BY created_at DESC LIMIT 10
+		ORDER BY created_at DESC LIMIT 5
 	`, merchantID)
 	if err != nil {
 		return err
