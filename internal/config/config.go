@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port                 string
 	DatabaseURL          string
+	DirectURL            string // used only for migrations (bypasses pgbouncer)
 	RedisURL             string
 	ShopifyAPIKey        string
 	ShopifyAPISecret     string
@@ -29,6 +30,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Port:                 getEnv("PORT", "3000"),
 		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		DirectURL:            os.Getenv("DIRECT_URL"),
 		RedisURL:             os.Getenv("REDIS_URL"),
 		ShopifyAPIKey:        os.Getenv("SHOPIFY_API_KEY"),
 		ShopifyAPISecret:     os.Getenv("SHOPIFY_API_SECRET"),

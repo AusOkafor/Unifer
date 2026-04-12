@@ -42,7 +42,14 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	if err := db.RunMigrations(sqlDB); err != nil {
+	// Migrations require a direct connection (not pgbouncer) because the
+	// migration protocol uses advisory locks that pgbouncer doesn't support.
+	// Fall back to DatabaseURL when DIRECT_URL is not set (local dev).
+	migrationURL := cfg.DirectURL
+	if migrationURL == "" {
+		migrationURL = cfg.DatabaseURL
+	}
+	if err := db.RunMigrations(migrationURL); err != nil {
 		log.Fatal().Err(err).Msg("failed to run migrations")
 	}
 	log.Info().Msg("postgres + migrations ready")

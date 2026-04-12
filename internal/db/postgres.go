@@ -29,15 +29,26 @@ func NewPostgres(databaseURL string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-// RunMigrations applies all pending up migrations using embedded SQL files.
-// Using embed.FS sidesteps all OS-specific file:// URL path issues.
-func RunMigrations(db *sqlx.DB) error {
+// RunMigrations opens a dedicated direct connection (bypassing pgbouncer) and
+// applies all pending up migrations from the embedded SQL files.
+func RunMigrations(databaseURL string) error {
+	// Open a separate connection just for migrations.
+	migDB, err := sqlx.Open("pgx", databaseURL)
+	if err != nil {
+		return fmt.Errorf("open migration db: %w", err)
+	}
+	defer migDB.Close()
+
+	if err := migDB.Ping(); err != nil {
+		return fmt.Errorf("ping migration db: %w", err)
+	}
+
 	src, err := iofs.New(MigrationFiles, "migrations")
 	if err != nil {
 		return fmt.Errorf("create migration source: %w", err)
 	}
 
-	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
+	driver, err := postgres.WithInstance(migDB.DB, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("create migration driver: %w", err)
 	}
