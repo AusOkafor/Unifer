@@ -7,16 +7,22 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 )
 
-// NewPostgres opens a connection pool to Postgres using the pgx driver.
+// NewPostgres opens a connection pool using simple query protocol so it works
+// with pgbouncer in transaction mode (which does not support prepared statements).
 func NewPostgres(databaseURL string) (*sqlx.DB, error) {
-	db, err := sqlx.Open("pgx", databaseURL)
+	connConfig, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres: %w", err)
+		return nil, fmt.Errorf("parse db url: %w", err)
 	}
+	// Simple protocol disables prepared statements — required for pgbouncer.
+	connConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	db := sqlx.NewDb(stdlib.OpenDB(*connConfig), "pgx")
 
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
@@ -32,11 +38,13 @@ func NewPostgres(databaseURL string) (*sqlx.DB, error) {
 // RunMigrations opens a dedicated direct connection (bypassing pgbouncer) and
 // applies all pending up migrations from the embedded SQL files.
 func RunMigrations(databaseURL string) error {
-	// Open a separate connection just for migrations.
-	migDB, err := sqlx.Open("pgx", databaseURL)
+	connConfig, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return fmt.Errorf("open migration db: %w", err)
+		return fmt.Errorf("parse migration db url: %w", err)
 	}
+	connConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	migDB := sqlx.NewDb(stdlib.OpenDB(*connConfig), "pgx")
 	defer migDB.Close()
 
 	if err := migDB.Ping(); err != nil {
