@@ -190,14 +190,18 @@ type MergeResult struct {
 
 // Merge calls Shopify's customerMerge GraphQL mutation.
 // This is the ONLY merge mechanism — no order reassignment needed as Shopify handles it.
+// The merge is asynchronous on Shopify's side; resultingCustomerId is the surviving customer GID.
 func (s *CustomerService) Merge(ctx context.Context, primaryGID, secondaryGID string) (*MergeResult, error) {
 	mutation := `
 		mutation customerMerge($customerOneId: ID!, $customerTwoId: ID!) {
 			customerMerge(customerOneId: $customerOneId, customerTwoId: $customerTwoId) {
-				resultingCustomer {
+				resultingCustomerId
+				job {
 					id
+					done
 				}
 				userErrors {
+					code
 					field
 					message
 				}
@@ -211,10 +215,13 @@ func (s *CustomerService) Merge(ctx context.Context, primaryGID, secondaryGID st
 
 	var data struct {
 		CustomerMerge struct {
-			ResultingCustomer struct {
-				ID string `json:"id"`
-			} `json:"resultingCustomer"`
+			ResultingCustomerID string `json:"resultingCustomerId"`
+			Job                 *struct {
+				ID   string `json:"id"`
+				Done bool   `json:"done"`
+			} `json:"job"`
 			UserErrors []struct {
+				Code    string `json:"code"`
 				Field   string `json:"field"`
 				Message string `json:"message"`
 			} `json:"userErrors"`
@@ -232,7 +239,7 @@ func (s *CustomerService) Merge(ctx context.Context, primaryGID, secondaryGID st
 	}
 
 	return &MergeResult{
-		CustomerID: data.CustomerMerge.ResultingCustomer.ID,
+		CustomerID: data.CustomerMerge.ResultingCustomerID,
 	}, nil
 }
 
