@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,8 +26,10 @@ func RequestLogger(log zerolog.Logger) gin.HandlerFunc {
 
 // CORS sets permissive CORS headers, supporting credentials for the frontend origin.
 func CORS(frontendURL string) gin.HandlerFunc {
+	// Strip trailing slash so the value matches what browsers send as Origin.
+	origin := strings.TrimRight(frontendURL, "/")
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", frontendURL)
+		c.Header("Access-Control-Allow-Origin", origin)
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
