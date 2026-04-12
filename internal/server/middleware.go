@@ -34,6 +34,10 @@ func CORS(frontendURL string) gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 
+		// Allow Shopify admin to embed this app in an iframe.
+		// frame-ancestors replaces X-Frame-Options and is the modern standard.
+		c.Header("Content-Security-Policy", "frame-ancestors https://admin.shopify.com https://*.myshopify.com")
+
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
