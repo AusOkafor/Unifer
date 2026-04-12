@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -14,47 +15,30 @@ import (
 
 // SnapshotData is the full pre-merge state stored in the snapshot.
 type SnapshotData struct {
-	Customers []shopifysvc.ShopifyCustomer `json:"customers"`
-	Orders    map[int64][]shopifysvc.ShopifyOrder `json:"orders"` // keyed by shopify customer ID
+	Customers []shopifysvc.ShopifyCustomer        `json:"customers"`
+	Orders    map[int64][]shopifysvc.ShopifyOrder  `json:"orders"` // keyed by shopify customer ID
 }
 
 type Service struct {
 	snapshotRepo repository.SnapshotRepository
-	customerSvc  *shopifysvc.CustomerService
-	orderSvc     *shopifysvc.OrderService
 }
 
-func NewService(
-	snapshotRepo repository.SnapshotRepository,
-	customerSvc *shopifysvc.CustomerService,
-	orderSvc *shopifysvc.OrderService,
-) *Service {
-	return &Service{
-		snapshotRepo: snapshotRepo,
-		customerSvc:  customerSvc,
-		orderSvc:     orderSvc,
-	}
+func NewService(snapshotRepo repository.SnapshotRepository) *Service {
+	return &Service{snapshotRepo: snapshotRepo}
 }
 
-// Create fetches full customer + order data from Shopify and stores it as a snapshot.
-// This must be called BEFORE any merge — Shopify merges are irreversible.
-func (s *Service) Create(ctx context.Context, merchantID uuid.UUID, customerIDs []int64) (*models.Snapshot, error) {
+// CreateFromCache builds a snapshot from customer_cache rows (no REST API calls needed).
+// Orders are omitted in this path — snapshot captures identity data for reconstruction.
+func (s *Service) CreateFromCache(ctx context.Context, merchantID uuid.UUID, customers []models.CustomerCache) (*models.Snapshot, error) {
 	data := SnapshotData{
 		Orders: make(map[int64][]shopifysvc.ShopifyOrder),
 	}
 
-	for _, id := range customerIDs {
-		customer, err := s.customerSvc.FetchByID(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("snapshot: fetch customer %d: %w", id, err)
-		}
-		data.Customers = append(data.Customers, *customer)
-
-		orders, err := s.orderSvc.FetchByCustomer(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("snapshot: fetch orders for customer %d: %w", id, err)
-		}
-		data.Orders[id] = orders
+	for _, c := range customers {
+		sc := cacheToShopifyCustomer(c)
+		data.Customers = append(data.Customers, sc)
+		// Orders not captured here (REST protected data restriction).
+		// The Shopify customerMerge API consolidates orders automatically.
 	}
 
 	dataJSON, err := json.Marshal(data)
@@ -71,6 +55,47 @@ func (s *Service) Create(ctx context.Context, merchantID uuid.UUID, customerIDs 
 	}
 
 	return snap, nil
+}
+
+// cacheToShopifyCustomer converts a CustomerCache row into the ShopifyCustomer
+// shape used for snapshot storage.
+func cacheToShopifyCustomer(c models.CustomerCache) shopifysvc.ShopifyCustomer {
+	sc := shopifysvc.ShopifyCustomer{
+		ID:          c.ShopifyCustomerID,
+		Email:       c.Email,
+		Phone:       c.Phone,
+		Tags:        strings.Join(c.Tags, ","),
+		OrdersCount: c.OrdersCount,
+		TotalSpent:  c.TotalSpent,
+	}
+
+	// Split name into first/last.
+	parts := strings.SplitN(strings.TrimSpace(c.Name), " ", 2)
+	if len(parts) >= 1 {
+		sc.FirstName = parts[0]
+	}
+	if len(parts) >= 2 {
+		sc.LastName = parts[1]
+	}
+
+	// Parse address JSON into a single Address entry if present.
+	if len(c.AddressJSON) > 0 {
+		raw := strings.TrimSpace(string(c.AddressJSON))
+		if raw != "{}" && raw != "null" && raw != "" {
+			var m map[string]string
+			if err := json.Unmarshal(c.AddressJSON, &m); err == nil {
+				sc.Addresses = []shopifysvc.Address{{
+					Address1: m["address1"],
+					City:     m["city"],
+					Province: m["province"],
+					Zip:      m["zip"],
+					Country:  m["country"],
+				}}
+			}
+		}
+	}
+
+	return sc
 }
 
 // Get retrieves a snapshot by ID.
@@ -90,12 +115,10 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*models.Snapshot, *Sna
 
 // LinkToMergeRecord updates the snapshot with the merge record ID after a successful merge.
 func (s *Service) LinkToMergeRecord(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error {
-	// Implemented via direct repo call — retrieve snap, update field, re-save
 	snap, err := s.snapshotRepo.FindByID(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 	snap.MergeRecordID = &mergeRecordID
-	// Re-create to update the merge_record_id (simplest for V1)
 	return s.snapshotRepo.Create(ctx, snap)
 }

@@ -3,6 +3,7 @@ package merge
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -11,6 +12,7 @@ import (
 	"merger/backend/internal/repository"
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
+	"merger/backend/internal/utils"
 )
 
 // MergeRequest holds the inputs for a merge operation.
@@ -25,73 +27,84 @@ type MergeRequest struct {
 // Orchestrator coordinates the full merge pipeline:
 // snapshot → validate → execute (customerMerge) → audit.
 type Orchestrator struct {
-	validator    *Validator
-	executor     *Executor
-	snapshotSvc  *snapshotsvc.Service
-	mergeRepo    repository.MergeRepository
-	duplicateRepo repository.DuplicateRepository
-	customerSvc  *shopifysvc.CustomerService
-	log          zerolog.Logger
+	validator         *Validator
+	snapshotSvc       *snapshotsvc.Service
+	mergeRepo         repository.MergeRepository
+	duplicateRepo     repository.DuplicateRepository
+	customerCacheRepo repository.CustomerCacheRepository
+	merchantRepo      repository.MerchantRepository
+	encryptor         *utils.Encryptor
+	log               zerolog.Logger
 }
 
 func NewOrchestrator(
 	validator *Validator,
-	executor *Executor,
 	snapshotSvc *snapshotsvc.Service,
 	mergeRepo repository.MergeRepository,
 	duplicateRepo repository.DuplicateRepository,
-	customerSvc *shopifysvc.CustomerService,
+	customerCacheRepo repository.CustomerCacheRepository,
+	merchantRepo repository.MerchantRepository,
+	encryptor *utils.Encryptor,
 	log zerolog.Logger,
 ) *Orchestrator {
 	return &Orchestrator{
-		validator:    validator,
-		executor:     executor,
-		snapshotSvc:  snapshotSvc,
-		mergeRepo:    mergeRepo,
-		duplicateRepo: duplicateRepo,
-		customerSvc:  customerSvc,
-		log:          log,
+		validator:         validator,
+		snapshotSvc:       snapshotSvc,
+		mergeRepo:         mergeRepo,
+		duplicateRepo:     duplicateRepo,
+		customerCacheRepo: customerCacheRepo,
+		merchantRepo:      merchantRepo,
+		encryptor:         encryptor,
+		log:               log,
 	}
 }
 
 // Execute runs the full merge pipeline for a given request.
 func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
-	allIDs := append([]int64{req.PrimaryCustomerID}, req.SecondaryIDs...)
 	log := o.log.With().
 		Str("merchant", req.MerchantID.String()).
 		Int64("primary", req.PrimaryCustomerID).
 		Logger()
 
-	// Step 1: Fetch customer data from Shopify for validation
-	log.Info().Msg("merge: fetching customer data")
-	customers := make([]shopifysvc.ShopifyCustomer, 0, len(allIDs))
-	for _, id := range allIDs {
-		c, err := o.customerSvc.FetchByID(ctx, id)
-		if err != nil {
-			return fmt.Errorf("merge: fetch customer %d: %w", id, err)
-		}
-		customers = append(customers, *c)
+	// Build a real per-merchant Shopify client.
+	merchant, err := o.merchantRepo.FindByID(ctx, req.MerchantID)
+	if err != nil {
+		return fmt.Errorf("merge: load merchant: %w", err)
+	}
+	token, err := o.encryptor.Decrypt(merchant.AccessTokenEnc)
+	if err != nil {
+		return fmt.Errorf("merge: decrypt token: %w", err)
+	}
+	shopifyClient := shopifysvc.NewClient(merchant.ShopDomain, token, o.log)
+	customerSvc := shopifysvc.NewCustomerService(shopifyClient)
+
+	// Step 1: Load customer data from cache for validation.
+	log.Info().Msg("merge: loading customer data from cache")
+	allIDs := append([]int64{req.PrimaryCustomerID}, req.SecondaryIDs...)
+	cacheCustomers, err := o.loadCacheCustomers(ctx, req.MerchantID, allIDs)
+	if err != nil {
+		return fmt.Errorf("merge: load cache customers: %w", err)
 	}
 
-	// Step 2: Validate
+	// Step 2: Validate.
 	log.Info().Msg("merge: validating")
-	if err := o.validator.Validate(ctx, customers); err != nil {
+	if err := o.validator.Validate(ctx, cacheCustomers); err != nil {
 		return fmt.Errorf("merge validation failed: %w", err)
 	}
 
-	// Step 3: Snapshot (MUST happen before any mutation — merge is irreversible)
+	// Step 3: Snapshot (MUST happen before any mutation — merge is irreversible).
 	log.Info().Msg("merge: creating snapshot")
-	snap, err := o.snapshotSvc.Create(ctx, req.MerchantID, allIDs)
+	snap, err := o.snapshotSvc.CreateFromCache(ctx, req.MerchantID, cacheCustomers)
 	if err != nil {
 		return fmt.Errorf("merge: snapshot failed: %w", err)
 	}
 	log.Info().Str("snapshot_id", snap.ID.String()).Msg("merge: snapshot created")
 
-	// Step 4: Execute via Shopify customerMerge GraphQL
+	// Step 4: Execute via Shopify customerMerge GraphQL.
 	log.Info().Msg("merge: executing customerMerge")
-	result, err := o.executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs)
+	executor := NewExecutor(customerSvc)
+	result, err := executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs)
 	if err != nil {
-		// Snapshot exists — log for manual recovery
 		log.Error().Err(err).Str("snapshot_id", snap.ID.String()).
 			Msg("merge: execute failed — snapshot preserved for recovery")
 		return fmt.Errorf("merge execute failed (snapshot %s preserved): %w", snap.ID, err)
@@ -99,26 +112,24 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 
 	log.Info().Str("resulting_gid", result.ResultingCustomerGID).Msg("merge: customerMerge succeeded")
 
-	// Step 4b: Post-merge validation — re-fetch the surviving customer to confirm
-	// expected fields are present. Anomalies are logged but never block the audit step.
-	o.validatePostMerge(ctx, result.ResultingCustomerGID, req.PrimaryCustomerID, log)
+	// Step 4b: Post-merge validation — non-blocking, best-effort.
+	o.validatePostMerge(ctx, result.ResultingCustomerGID, customerSvc, log)
 
-	// Step 5: Audit record
+	// Step 5: Audit record.
 	mergeRecord := &models.MergeRecord{
 		MerchantID:           req.MerchantID,
 		PrimaryCustomerID:    req.PrimaryCustomerID,
 		SecondaryCustomerIDs: req.SecondaryIDs,
-		OrdersMoved:          0, // Shopify handles this — we track logical count if needed
+		OrdersMoved:          0,
 		PerformedBy:          req.PerformedBy,
 		SnapshotID:           &snap.ID,
 	}
 
 	if err := o.mergeRepo.Create(ctx, mergeRecord); err != nil {
 		log.Error().Err(err).Msg("merge: audit record creation failed")
-		// Non-fatal — merge already succeeded in Shopify
 	}
 
-	// Step 6: Mark duplicate group as merged
+	// Step 6: Mark duplicate group as merged.
 	if req.GroupID != uuid.Nil {
 		if err := o.duplicateRepo.UpdateStatus(ctx, req.GroupID, "merged"); err != nil {
 			log.Warn().Err(err).Str("group_id", req.GroupID.String()).Msg("merge: update group status failed")
@@ -129,28 +140,49 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	return nil
 }
 
+// loadCacheCustomers fetches CustomerCache rows for the given Shopify IDs.
+func (o *Orchestrator) loadCacheCustomers(ctx context.Context, merchantID uuid.UUID, ids []int64) ([]models.CustomerCache, error) {
+	all, err := o.customerCacheRepo.FindByMerchant(ctx, merchantID)
+	if err != nil {
+		return nil, err
+	}
+	index := make(map[int64]models.CustomerCache, len(all))
+	for _, c := range all {
+		index[c.ShopifyCustomerID] = c
+	}
+	result := make([]models.CustomerCache, 0, len(ids))
+	for _, id := range ids {
+		c, ok := index[id]
+		if !ok {
+			return nil, fmt.Errorf("customer %d not found in cache — run a sync first", id)
+		}
+		result = append(result, c)
+	}
+	return result, nil
+}
+
 // validatePostMerge re-fetches the surviving customer after a merge and logs
-// any anomalies. It is non-blocking — a validation failure never fails the merge.
-func (o *Orchestrator) validatePostMerge(ctx context.Context, resultingGID string, _ int64, log zerolog.Logger) {
+// any anomalies. It is non-blocking — a failure never fails the merge.
+func (o *Orchestrator) validatePostMerge(ctx context.Context, resultingGID string, customerSvc *shopifysvc.CustomerService, log zerolog.Logger) {
 	shopifyID, err := shopifysvc.GIDToShopifyID(resultingGID)
 	if err != nil {
 		log.Warn().Str("gid", resultingGID).Msg("post-merge validation: could not parse resulting GID")
 		return
 	}
 
-	customer, err := o.customerSvc.FetchByID(ctx, shopifyID)
+	customer, err := customerSvc.FetchByID(ctx, shopifyID)
 	if err != nil {
-		log.Warn().Err(err).Int64("shopify_id", shopifyID).Msg("post-merge validation: could not fetch resulting customer")
+		// REST may be restricted — log and continue, this is best-effort only.
+		log.Warn().Err(err).Int64("shopify_id", shopifyID).Msg("post-merge validation: skipped (REST fetch failed)")
 		return
 	}
 
-	// Check that expected primary data is present
 	if customer.Email == "" {
-		log.Warn().Int64("shopify_id", shopifyID).Msg("post-merge validation: resulting customer has no email — data may have been overwritten")
+		log.Warn().Int64("shopify_id", shopifyID).Msg("post-merge validation: resulting customer has no email")
 	}
-	if customer.FirstName == "" && customer.LastName == "" {
-		log.Warn().Int64("shopify_id", shopifyID).Msg("post-merge validation: resulting customer has no name")
-	}
+
+	parts := strings.SplitN(customer.FirstName+" "+customer.LastName, " ", 2)
+	_ = parts
 
 	log.Info().
 		Int64("shopify_id", shopifyID).

@@ -20,7 +20,6 @@ import (
 	"merger/backend/internal/services/jobs"
 	mergesvc "merger/backend/internal/services/merge"
 	snapshotsvc "merger/backend/internal/services/snapshot"
-	shopifysvc "merger/backend/internal/services/shopify"
 	syncsvc "merger/backend/internal/services/sync"
 	"merger/backend/internal/utils"
 	"merger/backend/pkg/shopifyauth"
@@ -91,19 +90,13 @@ func main() {
 		AppURL:    cfg.AppURL,
 	}
 
-	// Build a placeholder Shopify client for wiring services.
-	// In production, job processor creates per-merchant clients using decrypted tokens.
-	sampleShopifyClient := shopifysvc.NewClient("placeholder.myshopify.com", "", log)
-	customerSvc := shopifysvc.NewCustomerService(sampleShopifyClient)
-	orderSvc := shopifysvc.NewOrderService(sampleShopifyClient)
-
 	// --- Core services ---
-	snapshotSvc := snapshotsvc.NewService(snapshotRepo, customerSvc, orderSvc)
+	snapshotSvc := snapshotsvc.NewService(snapshotRepo)
 	validator := mergesvc.NewValidator()
-	executor := mergesvc.NewExecutor(customerSvc)
 	orchestrator := mergesvc.NewOrchestrator(
-		validator, executor, snapshotSvc,
-		mergeRepo, duplicateRepo, customerSvc, log,
+		validator, snapshotSvc,
+		mergeRepo, duplicateRepo,
+		customerCacheRepo, merchantRepo, encryptor, log,
 	)
 	analyzer := intelligence.NewAnalyzer()
 	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, analyzer, log)
