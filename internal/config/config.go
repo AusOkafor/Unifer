@@ -2,42 +2,42 @@ package config
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/spf13/viper"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port                 string `mapstructure:"PORT"`
-	DatabaseURL          string `mapstructure:"DATABASE_URL"`
-	RedisURL             string `mapstructure:"REDIS_URL"`
-	ShopifyAPIKey        string `mapstructure:"SHOPIFY_API_KEY"`
-	ShopifyAPISecret     string `mapstructure:"SHOPIFY_API_SECRET"`
-	ShopifyWebhookSecret string `mapstructure:"SHOPIFY_WEBHOOK_SECRET"`
-	EncryptionKey        string `mapstructure:"ENCRYPTION_KEY"`
-	AppURL               string `mapstructure:"APP_URL"`
-	Environment          string `mapstructure:"ENVIRONMENT"`
-	JWTSecret            string `mapstructure:"JWT_SECRET"`
-	FrontendURL          string `mapstructure:"FRONTEND_URL"`
+	Port                 string
+	DatabaseURL          string
+	RedisURL             string
+	ShopifyAPIKey        string
+	ShopifyAPISecret     string
+	ShopifyWebhookSecret string
+	EncryptionKey        string
+	AppURL               string
+	Environment          string
+	JWTSecret            string
+	FrontendURL          string
 }
 
 func Load() (*Config, error) {
-	// AutomaticEnv must be called before ReadInConfig so that real environment
-	// variables (e.g. on Render) are always preferred over a .env file.
-	viper.AutomaticEnv()
+	// Load .env file if present — silently ignored in production where real
+	// environment variables are injected by the platform (Render, etc.).
+	_ = godotenv.Load(".env")
 
-	viper.SetConfigFile(".env")
-	viper.SetConfigType("env")
-	// Read .env file if present; ignore error if missing (env vars suffice)
-	_ = viper.ReadInConfig()
-
-	// Defaults
-	viper.SetDefault("PORT", "3000")
-	viper.SetDefault("ENVIRONMENT", "development")
-	viper.SetDefault("FRONTEND_URL", "http://localhost:8080")
-
-	cfg := &Config{}
-	if err := viper.Unmarshal(cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
+	cfg := &Config{
+		Port:                 getEnv("PORT", "3000"),
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		RedisURL:             os.Getenv("REDIS_URL"),
+		ShopifyAPIKey:        os.Getenv("SHOPIFY_API_KEY"),
+		ShopifyAPISecret:     os.Getenv("SHOPIFY_API_SECRET"),
+		ShopifyWebhookSecret: os.Getenv("SHOPIFY_WEBHOOK_SECRET"),
+		EncryptionKey:        os.Getenv("ENCRYPTION_KEY"),
+		JWTSecret:            os.Getenv("JWT_SECRET"),
+		AppURL:               os.Getenv("APP_URL"),
+		Environment:          getEnv("ENVIRONMENT", "development"),
+		FrontendURL:          getEnv("FRONTEND_URL", "http://localhost:8080"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -54,4 +54,11 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func getEnv(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }
