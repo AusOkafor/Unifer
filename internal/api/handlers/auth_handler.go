@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	shopifysvc "merger/backend/internal/services/shopify"
 	"merger/backend/internal/utils"
 	"merger/backend/pkg/shopifyauth"
 )
@@ -109,6 +111,18 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
+
+	// Register Shopify webhooks for this merchant (best-effort, non-blocking).
+	// Uses the plaintext token from the just-completed exchange.
+	go func() {
+		client := shopifysvc.NewClient(shop, token, h.log)
+		whSvc := shopifysvc.NewWebhookService(client)
+		if err := whSvc.RegisterAll(context.Background(), h.oauthCfg.AppURL); err != nil {
+			h.log.Warn().Err(err).Str("shop", shop).Msg("webhook registration failed")
+		} else {
+			h.log.Info().Str("shop", shop).Msg("shopify webhooks registered")
+		}
+	}()
 
 	// Issue JWT session cookie
 	sessionToken, err := h.issueJWT(merchant.ID, shop)

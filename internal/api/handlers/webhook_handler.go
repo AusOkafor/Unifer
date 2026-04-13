@@ -94,8 +94,9 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 	}
 
 	name := strings.TrimSpace(payload.FirstName + " " + payload.LastName)
-	// Build address JSON for storage
-	addrJSON, _ := json.Marshal(payload.Addresses)
+	// Build address JSON in flat map format (matches sync_service format)
+	// so scorer.extractAddress can parse it correctly.
+	addrJSON := buildWebhookAddressJSON(payload.Addresses)
 	tags := strings.Split(payload.Tags, ",")
 	cleanTags := make([]string, 0, len(tags))
 	for _, t := range tags {
@@ -141,6 +142,25 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 	}
 
 	h.log.Debug().Int64("shopify_id", payload.ID).Str("shop", merchant.ShopDomain).Msg("customer cache updated")
+}
+
+// buildWebhookAddressJSON extracts the first address from the Shopify webhook
+// payload and serializes it as a flat map[string]string, matching the format
+// produced by the sync service so that scorer.extractAddress can parse it.
+func buildWebhookAddressJSON(addresses []shopifysvc.Address) []byte {
+	if len(addresses) == 0 {
+		return []byte("{}")
+	}
+	a := addresses[0]
+	m := map[string]string{
+		"address1": a.Address1,
+		"city":     a.City,
+		"province": a.Province,
+		"zip":      a.Zip,
+		"country":  a.Country,
+	}
+	b, _ := json.Marshal(m)
+	return b
 }
 
 func (h *WebhookHandler) handleCustomerDelete(c *gin.Context, body []byte, merchant *models.Merchant) {
