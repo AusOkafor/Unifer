@@ -155,10 +155,22 @@ func (h *MergeHandler) BulkPreview(c *gin.Context) {
 	c.JSON(http.StatusOK, preview)
 }
 
-// SafeBulkMerge queues merge jobs for every safe pending duplicate group.
-// Groups without a clear recommended primary are skipped.
+// SafeBulkMerge queues merge jobs for safe pending duplicate groups.
+// Use the ?limit= query param (default 10, max 50) to control batch size and
+// avoid spiking the Shopify rate limit or flooding the job queue. Call
+// repeatedly (incrementing offset via the returned queued count) to page
+// through all safe groups.
 func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	// Batch size control — prevents rate limit spikes and queue congestion.
+	batchSize := 10
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
+		if l > 50 {
+			l = 50
+		}
+		batchSize = l
+	}
 
 	groups, err := h.duplicateRepo.ListSafeGroups(c.Request.Context(), merchant.ID)
 	if err != nil {
@@ -170,6 +182,11 @@ func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 	if len(groups) == 0 {
 		c.JSON(http.StatusOK, dto.SafeBulkMergeResponse{})
 		return
+	}
+
+	// Apply batch limit so callers can page through large queues incrementally.
+	if len(groups) > batchSize {
+		groups = groups[:batchSize]
 	}
 
 	resp := dto.SafeBulkMergeResponse{}

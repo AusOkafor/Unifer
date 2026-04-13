@@ -136,8 +136,13 @@ func (r *duplicateRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.Dup
 }
 
 func (r *duplicateRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	// Set merged_at when transitioning to "merged" — this is our learning signal.
+	// For other status transitions the column is left unchanged.
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE duplicate_groups SET status = $1 WHERE id = $2`,
+		`UPDATE duplicate_groups
+		 SET status = $1,
+		     merged_at = CASE WHEN $1 = 'merged' THEN NOW() ELSE merged_at END
+		 WHERE id = $2`,
 		status, id,
 	)
 	if err != nil {

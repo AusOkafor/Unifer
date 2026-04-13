@@ -94,36 +94,60 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			maxScore = topPair.Score
 		}
 
-		riskLevel := classifyRisk(maxScore)
-		g := &models.DuplicateGroup{
-			MerchantID:      merchantID,
-			GroupHash:       hash,
-			CustomerIDs:     int64SliceToPQ(memberIDs),
-			ConfidenceScore: maxScore,
-			Status:          "pending",
-			RiskLevel:       &riskLevel,
-		}
+		members := gatherMembers(memberIDs, customerByID)
 
-		// Generate intelligence report from cached customer data.
+		// Generate intelligence report and enrich with breakdown, reasons,
+		// and structural conflict analysis. Collect results before building
+		// the group model so risk classification can use conflict severity.
+		var (
+			intelJSON        []byte
+			readinessScore   *float64
+			conflictSeverity string
+		)
 		if d.analyzer != nil {
-			members := gatherMembers(memberIDs, customerByID)
 			if report, err := d.analyzer.Analyze(members); err == nil {
-				// Attach per-field breakdown from the top-scoring pair.
+				// Per-field breakdown with human-readable reasons.
 				if topPair != nil {
+					reasons := intelligence.GenerateBreakdownReasons(
+						topPair.EmailSim, topPair.NameSim,
+						topPair.PhoneSim, topPair.AddressSim,
+					)
 					report.Breakdown = &intelligence.FieldBreakdown{
 						EmailScore:   topPair.EmailSim,
 						NameScore:    topPair.NameSim,
 						PhoneScore:   topPair.PhoneSim,
 						AddressScore: topPair.AddressSim,
+						Reasons:      reasons,
 					}
 				}
-				if raw, err := report.ToRawJSON(); err == nil {
-					g.IntelligenceJSON = raw
-					g.ReadinessScore = &report.ReadinessScore
+
+				// Structural conflict detection — can override risk level.
+				cr := intelligence.DetectConflicts(members)
+				report.Conflicts = cr.Conflicts
+				report.ConflictSeverity = cr.Severity
+				conflictSeverity = cr.Severity
+
+				if raw, err2 := report.ToRawJSON(); err2 == nil {
+					intelJSON = raw
+					readinessScore = &report.ReadinessScore
 				}
 			} else {
 				d.log.Debug().Err(err).Str("hash", hash).Msg("intelligence analysis skipped")
 			}
+		}
+
+		// Risk classification: high-severity conflicts override confidence thresholds.
+		riskLevel := classifyRisk(maxScore, conflictSeverity)
+
+		g := &models.DuplicateGroup{
+			MerchantID:       merchantID,
+			GroupHash:        hash,
+			CustomerIDs:      int64SliceToPQ(memberIDs),
+			ConfidenceScore:  maxScore,
+			Status:           "pending",
+			RiskLevel:        &riskLevel,
+			ReadinessScore:   readinessScore,
+			IntelligenceJSON: intelJSON,
 		}
 
 		if err := d.duplicateRepo.CreateGroup(ctx, g); err != nil {
@@ -254,8 +278,14 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 	return pairs
 }
 
-// addressBucketKey builds a normalized city+zip key used to bucket customers
-// who may share a household. Returns "" if neither city nor zip is available.
+// addressBucketKey builds a normalized key for address-based bucketing.
+//
+// Strategy (most precise to least):
+//   - If a street address is available: normalizedStreet|city|zip
+//   - Otherwise: city|zip (broader bucket, more collisions but still useful)
+//
+// The street is normalized by stripping unit/suite/apt numbers so that
+// "123 Main St Apt 2" and "123 Main St Unit 4" end up in the same bucket.
 func addressBucketKey(c *models.CustomerCache) string {
 	if len(c.AddressJSON) == 0 {
 		return ""
@@ -269,7 +299,29 @@ func addressBucketKey(c *models.CustomerCache) string {
 	if city == "" && zip == "" {
 		return ""
 	}
+
+	street := normalizeStreet(m["address1"])
+	if street != "" {
+		return street + "|" + city + "|" + zip
+	}
 	return city + "|" + zip
+}
+
+// normalizeStreet lowercases and strips common unit/suite suffixes so that
+// "123 Main St Apt 2B" and "123 Main St Suite 100" resolve to "123 main st".
+func normalizeStreet(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	// Strip everything from common unit delimiters onwards.
+	unitPrefixes := []string{" apt ", " apt.", " unit ", " suite ", " ste ", " #", " no."}
+	for _, prefix := range unitPrefixes {
+		if idx := strings.Index(s, prefix); idx > 0 {
+			s = strings.TrimSpace(s[:idx])
+		}
+	}
+	return s
 }
 
 // gatherMembers collects full CustomerCache rows for a list of Shopify IDs.
@@ -315,7 +367,22 @@ func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 }
 
 // classifyRisk maps a confidence score to a risk level string.
-func classifyRisk(confidence float64) string {
+// conflictSeverity from DetectConflicts can override the confidence-based
+// classification: a high-severity conflict (e.g. different countries, disabled
+// account) forces "risky" regardless of how similar the names/emails look.
+// A medium-severity conflict caps the result at "review".
+func classifyRisk(confidence float64, conflictSeverity string) string {
+	switch conflictSeverity {
+	case "high":
+		return "risky"
+	case "medium":
+		// Cannot be "safe" even if confidence is high.
+		if confidence >= 0.90 {
+			return "review"
+		}
+		return "risky"
+	}
+	// No structural conflicts — use confidence thresholds.
 	switch {
 	case confidence >= 0.90:
 		return "safe"

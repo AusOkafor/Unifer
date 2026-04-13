@@ -3,7 +3,6 @@ package merge
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -100,6 +99,13 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	}
 	log.Info().Str("snapshot_id", snap.ID.String()).Msg("merge: snapshot created")
 
+	// Capture expected combined order count BEFORE the merge so we can validate
+	// Shopify consolidated them correctly afterwards.
+	expectedMinOrders := 0
+	for _, c := range cacheCustomers {
+		expectedMinOrders += c.OrdersCount
+	}
+
 	// Step 4: Execute via Shopify customerMerge GraphQL.
 	log.Info().Msg("merge: executing customerMerge")
 	executor := NewExecutor(customerSvc)
@@ -113,7 +119,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	log.Info().Str("resulting_gid", result.ResultingCustomerGID).Msg("merge: customerMerge succeeded")
 
 	// Step 4b: Post-merge validation — non-blocking, best-effort.
-	o.validatePostMerge(ctx, result.ResultingCustomerGID, customerSvc, log)
+	o.validatePostMerge(ctx, result.ResultingCustomerGID, expectedMinOrders, customerSvc, log)
 
 	// Step 5: Audit record.
 	mergeRecord := &models.MergeRecord{
@@ -161,9 +167,21 @@ func (o *Orchestrator) loadCacheCustomers(ctx context.Context, merchantID uuid.U
 	return result, nil
 }
 
-// validatePostMerge re-fetches the surviving customer after a merge and logs
-// any anomalies. It is non-blocking — a failure never fails the merge.
-func (o *Orchestrator) validatePostMerge(ctx context.Context, resultingGID string, customerSvc *shopifysvc.CustomerService, log zerolog.Logger) {
+// validatePostMerge re-fetches the surviving customer and checks that the merge
+// was consistent. It is non-blocking — a failure logs a warning but never
+// fails or rolls back the merge.
+//
+// Checks performed:
+//   - Customer still exists (not 404)
+//   - Email is present
+//   - orders_count >= expectedMinOrders (confirms Shopify consolidated orders)
+func (o *Orchestrator) validatePostMerge(
+	ctx context.Context,
+	resultingGID string,
+	expectedMinOrders int,
+	customerSvc *shopifysvc.CustomerService,
+	log zerolog.Logger,
+) {
 	shopifyID, err := shopifysvc.GIDToShopifyID(resultingGID)
 	if err != nil {
 		log.Warn().Str("gid", resultingGID).Msg("post-merge validation: could not parse resulting GID")
@@ -172,21 +190,35 @@ func (o *Orchestrator) validatePostMerge(ctx context.Context, resultingGID strin
 
 	customer, err := customerSvc.FetchByID(ctx, shopifyID)
 	if err != nil {
-		// REST may be restricted — log and continue, this is best-effort only.
-		log.Warn().Err(err).Int64("shopify_id", shopifyID).Msg("post-merge validation: skipped (REST fetch failed)")
+		// REST may be restricted (Protected Customer Data) — log and continue.
+		log.Warn().Err(err).Int64("shopify_id", shopifyID).
+			Msg("post-merge validation: REST fetch failed — skipping consistency check")
 		return
 	}
 
+	ok := true
+
 	if customer.Email == "" {
-		log.Warn().Int64("shopify_id", shopifyID).Msg("post-merge validation: resulting customer has no email")
+		log.Warn().Int64("shopify_id", shopifyID).
+			Msg("post-merge validation: resulting customer has no email address")
+		ok = false
 	}
 
-	parts := strings.SplitN(customer.FirstName+" "+customer.LastName, " ", 2)
-	_ = parts
+	if expectedMinOrders > 0 && customer.OrdersCount < expectedMinOrders {
+		log.Warn().
+			Int64("shopify_id", shopifyID).
+			Int("orders_got", customer.OrdersCount).
+			Int("orders_expected_min", expectedMinOrders).
+			Msg("post-merge validation: WARNING — order count lower than expected; Shopify may still be consolidating")
+		ok = false
+	}
 
-	log.Info().
-		Int64("shopify_id", shopifyID).
-		Str("email", customer.Email).
-		Int("orders_count", customer.OrdersCount).
-		Msg("post-merge validation: resulting customer verified")
+	if ok {
+		log.Info().
+			Int64("shopify_id", shopifyID).
+			Str("email", customer.Email).
+			Int("orders_count", customer.OrdersCount).
+			Int("expected_min_orders", expectedMinOrders).
+			Msg("post-merge validation: ok — customer consistent")
+	}
 }

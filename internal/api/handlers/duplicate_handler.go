@@ -216,12 +216,18 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 	if riskFlags == nil {
 		riskFlags = []string{}
 	}
+	conflicts := r.Conflicts
+	if conflicts == nil {
+		conflicts = []string{}
+	}
 	idto := &dto.IntelligenceDTO{
 		RecommendedPrimary: r.RecommendedPrimary,
 		ReadinessScore:     r.ReadinessScore,
 		Reasoning:          reasoning,
 		RiskFlags:          riskFlags,
 		Simulation:         sim,
+		Conflicts:          conflicts,
+		ConflictSeverity:   r.ConflictSeverity,
 	}
 	if r.Breakdown != nil {
 		idto.Breakdown = &dto.FieldBreakdownDTO{
@@ -229,6 +235,7 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 			NameScore:    r.Breakdown.NameScore,
 			PhoneScore:   r.Breakdown.PhoneScore,
 			AddressScore: r.Breakdown.AddressScore,
+			Reasons:      r.Breakdown.Reasons,
 		}
 	}
 	return idto

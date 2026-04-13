@@ -12,12 +12,15 @@ import (
 
 // FieldBreakdown holds per-field similarity scores (0–1) for the top-scoring
 // pair in the cluster. Stored in intelligence_json and surfaced in the API
-// so the frontend can render a confidence breakdown chart.
+// so the frontend can render a real confidence breakdown chart.
 type FieldBreakdown struct {
-	EmailScore   float64 `json:"email_score"`
-	NameScore    float64 `json:"name_score"`
-	PhoneScore   float64 `json:"phone_score"`
-	AddressScore float64 `json:"address_score"`
+	EmailScore   float64  `json:"email_score"`
+	NameScore    float64  `json:"name_score"`
+	PhoneScore   float64  `json:"phone_score"`
+	AddressScore float64  `json:"address_score"`
+	// Reasons are human-readable explanations derived from the component scores,
+	// e.g. "Strong name match", "Same email domain", "Different email domains".
+	Reasons      []string `json:"reasons,omitempty"`
 }
 
 // IntelligenceReport is the full pre-merge analysis stored against a duplicate group.
@@ -28,6 +31,12 @@ type IntelligenceReport struct {
 	RiskFlags          []string          `json:"risk_flags"`
 	Simulation         SimulationPreview `json:"simulation"`
 	Breakdown          *FieldBreakdown   `json:"breakdown,omitempty"`
+	// Conflicts are structural incompatibilities detected between the customers,
+	// e.g. "different_countries", "disabled_account".
+	Conflicts          []string          `json:"conflicts,omitempty"`
+	// ConflictSeverity is "high", "medium", "low", or "" (no conflicts).
+	// High-severity conflicts override the confidence-based risk level.
+	ConflictSeverity   string            `json:"conflict_severity,omitempty"`
 	ComputedAt         time.Time         `json:"computed_at"`
 }
 

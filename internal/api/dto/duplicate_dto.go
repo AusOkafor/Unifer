@@ -36,12 +36,14 @@ type SimulationDTO struct {
 	FieldConflicts      []FieldConflictDTO `json:"field_conflicts"`
 }
 
-// FieldBreakdownDTO exposes per-field similarity scores for the confidence breakdown UI.
+// FieldBreakdownDTO exposes per-field similarity scores and human-readable
+// reasons for the confidence breakdown UI.
 type FieldBreakdownDTO struct {
-	EmailScore   float64 `json:"email_score"`
-	NameScore    float64 `json:"name_score"`
-	PhoneScore   float64 `json:"phone_score"`
-	AddressScore float64 `json:"address_score"`
+	EmailScore   float64  `json:"email_score"`
+	NameScore    float64  `json:"name_score"`
+	PhoneScore   float64  `json:"phone_score"`
+	AddressScore float64  `json:"address_score"`
+	Reasons      []string `json:"reasons,omitempty"`
 }
 
 // IntelligenceDTO is the pre-merge analysis embedded in the detail response.
@@ -52,6 +54,8 @@ type IntelligenceDTO struct {
 	RiskFlags          []string           `json:"risk_flags"`
 	Simulation         SimulationDTO      `json:"simulation"`
 	Breakdown          *FieldBreakdownDTO `json:"breakdown,omitempty"`
+	Conflicts          []string           `json:"conflicts,omitempty"`
+	ConflictSeverity   string             `json:"conflict_severity,omitempty"`
 }
 
 // DuplicateGroupResponse is the list-view representation of a duplicate group.
