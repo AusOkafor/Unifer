@@ -83,16 +83,19 @@ func (s *WebhookService) RegisterAll(ctx context.Context, appURL string) error {
 
 // CustomerWebhookPayload is the shape of customer create/update webhook payloads.
 type CustomerWebhookPayload struct {
-	ID          int64     `json:"id"`
-	Email       string    `json:"email"`
-	FirstName   string    `json:"first_name"`
-	LastName    string    `json:"last_name"`
-	Phone       string    `json:"phone"`
-	Tags        string    `json:"tags"`
-	Note        string    `json:"note"`
-	Addresses   []Address `json:"addresses"`
-	OrdersCount int       `json:"orders_count"`
-	TotalSpent  string    `json:"total_spent"`
+	ID            int64     `json:"id"`
+	Email         string    `json:"email"`
+	FirstName     string    `json:"first_name"`
+	LastName      string    `json:"last_name"`
+	Phone         string    `json:"phone"`
+	Tags          string    `json:"tags"`
+	Note          string    `json:"note"`
+	State         string    `json:"state"`
+	VerifiedEmail bool      `json:"verified_email"`
+	CreatedAt     string    `json:"created_at"`
+	Addresses     []Address `json:"addresses"`
+	OrdersCount   int       `json:"orders_count"`
+	TotalSpent    string    `json:"total_spent"`
 }
 
 // ParseCustomerPayload decodes a raw webhook body into a CustomerWebhookPayload.

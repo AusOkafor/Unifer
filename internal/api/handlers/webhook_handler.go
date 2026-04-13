@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -125,6 +126,13 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 		}
 	}
 
+	var shopifyCreatedAt *time.Time
+	if payload.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, payload.CreatedAt); err == nil {
+			shopifyCreatedAt = &t
+		}
+	}
+
 	customer := &models.CustomerCache{
 		MerchantID:        merchant.ID,
 		ShopifyCustomerID: payload.ID,
@@ -135,6 +143,10 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 		Tags:              cleanTags,
 		OrdersCount:       payload.OrdersCount,
 		TotalSpent:        payload.TotalSpent,
+		Note:              payload.Note,
+		State:             payload.State,
+		VerifiedEmail:     payload.VerifiedEmail,
+		ShopifyCreatedAt:  shopifyCreatedAt,
 	}
 
 	if err := h.customerCacheRepo.Upsert(c.Request.Context(), customer); err != nil {

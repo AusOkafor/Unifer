@@ -10,19 +10,20 @@ import (
 
 // ShopifyCustomer represents the Shopify customer resource.
 type ShopifyCustomer struct {
-	ID            int64    `json:"id"`
-	Email         string   `json:"email"`
-	FirstName     string   `json:"first_name"`
-	LastName      string   `json:"last_name"`
-	Phone         string   `json:"phone"`
-	Tags          string   `json:"tags"`
-	Note          string   `json:"note"`
+	ID            int64     `json:"id"`
+	Email         string    `json:"email"`
+	FirstName     string    `json:"first_name"`
+	LastName      string    `json:"last_name"`
+	Phone         string    `json:"phone"`
+	Tags          string    `json:"tags"`
+	Note          string    `json:"note"`
+	State         string    `json:"state"`
+	VerifiedEmail bool      `json:"verified_email"`
 	Addresses     []Address `json:"addresses"`
-	OrdersCount   int      `json:"orders_count"`
-	TotalSpent    string   `json:"total_spent"`
-	State         string   `json:"state"`
-	CreatedAt     string   `json:"created_at"`
-	UpdatedAt     string   `json:"updated_at"`
+	OrdersCount   int       `json:"orders_count"`
+	TotalSpent    string    `json:"total_spent"`
+	CreatedAt     string    `json:"created_at"`
+	UpdatedAt     string    `json:"updated_at"`
 }
 
 type Address struct {
@@ -68,6 +69,10 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 						email
 						phone
 						tags
+						note
+						state
+						verifiedEmail
+						createdAt
 						numberOfOrders
 						amountSpent { amount }
 						defaultAddress {
@@ -100,6 +105,10 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 		Email            string     `json:"email"`
 		Phone            string     `json:"phone"`
 		Tags             []string   `json:"tags"`
+		Note             string     `json:"note"`
+		State            string     `json:"state"`
+		VerifiedEmail    bool       `json:"verifiedEmail"`
+		CreatedAt        string     `json:"createdAt"`
 		NumberOfOrders   string     `json:"numberOfOrders"`
 		AmountSpent      struct {
 			Amount string `json:"amount"`
@@ -138,14 +147,18 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 			ordersCount, _ := strconv.Atoi(n.NumberOfOrders)
 
 			sc := ShopifyCustomer{
-				ID:          id,
-				FirstName:   n.FirstName,
-				LastName:    n.LastName,
-				Email:       n.Email,
-				Phone:       n.Phone,
-				Tags:        strings.Join(n.Tags, ","),
-				OrdersCount: ordersCount,
-				TotalSpent:  n.AmountSpent.Amount,
+				ID:            id,
+				FirstName:     n.FirstName,
+				LastName:      n.LastName,
+				Email:         n.Email,
+				Phone:         n.Phone,
+				Tags:          strings.Join(n.Tags, ","),
+				Note:          n.Note,
+				State:         n.State,
+				VerifiedEmail: n.VerifiedEmail,
+				CreatedAt:     n.CreatedAt,
+				OrdersCount:   ordersCount,
+				TotalSpent:    n.AmountSpent.Amount,
 			}
 			if n.DefaultAddress != nil {
 				sc.Addresses = []Address{{

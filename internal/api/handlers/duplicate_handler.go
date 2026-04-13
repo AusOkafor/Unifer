@@ -138,6 +138,10 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 				OrdersCount:       cached.OrdersCount,
 				TotalSpent:        cached.TotalSpent,
 				AddressJSON:       cached.AddressJSON,
+				Note:              cached.Note,
+				State:             cached.State,
+				VerifiedEmail:     cached.VerifiedEmail,
+				ShopifyCreatedAt:  cached.ShopifyCreatedAt,
 			})
 		}
 	}

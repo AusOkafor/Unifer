@@ -33,18 +33,24 @@ func NewCustomerCacheRepo(db *sqlx.DB) CustomerCacheRepository {
 func (r *customerCacheRepo) Upsert(ctx context.Context, c *models.CustomerCache) error {
 	query := `
 		INSERT INTO customer_cache
-			(merchant_id, shopify_customer_id, email, name, phone, address_json, tags, orders_count, total_spent, updated_at)
+			(merchant_id, shopify_customer_id, email, name, phone, address_json, tags,
+			 orders_count, total_spent, note, state, verified_email, shopify_created_at, updated_at)
 		VALUES
-			(:merchant_id, :shopify_customer_id, :email, :name, :phone, :address_json, :tags, :orders_count, :total_spent, NOW())
+			(:merchant_id, :shopify_customer_id, :email, :name, :phone, :address_json, :tags,
+			 :orders_count, :total_spent, :note, :state, :verified_email, :shopify_created_at, NOW())
 		ON CONFLICT (merchant_id, shopify_customer_id) DO UPDATE SET
-			email        = EXCLUDED.email,
-			name         = EXCLUDED.name,
-			phone        = EXCLUDED.phone,
-			address_json = EXCLUDED.address_json,
-			tags         = EXCLUDED.tags,
-			orders_count = EXCLUDED.orders_count,
-			total_spent  = EXCLUDED.total_spent,
-			updated_at   = NOW()
+			email              = EXCLUDED.email,
+			name               = EXCLUDED.name,
+			phone              = EXCLUDED.phone,
+			address_json       = EXCLUDED.address_json,
+			tags               = EXCLUDED.tags,
+			orders_count       = EXCLUDED.orders_count,
+			total_spent        = EXCLUDED.total_spent,
+			note               = EXCLUDED.note,
+			state              = EXCLUDED.state,
+			verified_email     = EXCLUDED.verified_email,
+			shopify_created_at = COALESCE(EXCLUDED.shopify_created_at, customer_cache.shopify_created_at),
+			updated_at         = NOW()
 		RETURNING id, updated_at`
 	rows, err := r.db.NamedQueryContext(ctx, query, c)
 	if err != nil {

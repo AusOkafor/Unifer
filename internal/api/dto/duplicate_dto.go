@@ -5,16 +5,21 @@ import (
 	"time"
 )
 
+
 // CustomerDetailDTO is enriched customer data returned in the single-group detail response.
 type CustomerDetailDTO struct {
-	ShopifyCustomerID int64             `json:"shopify_customer_id"`
-	Name              string            `json:"name"`
-	Email             string            `json:"email"`
-	Phone             string            `json:"phone"`
-	Tags              []string          `json:"tags"`
-	OrdersCount       int               `json:"orders_count"`
-	TotalSpent        string            `json:"total_spent"`
-	AddressJSON       json.RawMessage   `json:"address_json,omitempty"`
+	ShopifyCustomerID int64           `json:"shopify_customer_id"`
+	Name              string          `json:"name"`
+	Email             string          `json:"email"`
+	Phone             string          `json:"phone"`
+	Tags              []string        `json:"tags"`
+	OrdersCount       int             `json:"orders_count"`
+	TotalSpent        string          `json:"total_spent"`
+	AddressJSON       json.RawMessage `json:"address_json,omitempty"`
+	Note              string          `json:"note,omitempty"`
+	State             string          `json:"state,omitempty"`
+	VerifiedEmail     bool            `json:"verified_email"`
+	ShopifyCreatedAt  *time.Time      `json:"shopify_created_at,omitempty"`
 }
 
 // FieldConflictDTO describes a field with differing values across customers.

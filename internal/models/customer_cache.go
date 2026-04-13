@@ -19,5 +19,9 @@ type CustomerCache struct {
 	Tags              pq.StringArray  `db:"tags"`
 	OrdersCount       int             `db:"orders_count"`
 	TotalSpent        string          `db:"total_spent"`
+	Note              string          `db:"note"`
+	State             string          `db:"state"`
+	VerifiedEmail     bool            `db:"verified_email"`
+	ShopifyCreatedAt  *time.Time      `db:"shopify_created_at"`
 	UpdatedAt         time.Time       `db:"updated_at"`
 }

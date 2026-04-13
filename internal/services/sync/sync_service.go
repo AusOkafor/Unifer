@@ -66,6 +66,13 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 		addrJSON := buildAddressJSON(sc)
 		tags := parseTags(sc.Tags)
 
+		var shopifyCreatedAt *time.Time
+		if sc.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, sc.CreatedAt); err == nil {
+				shopifyCreatedAt = &t
+			}
+		}
+
 		cache := &models.CustomerCache{
 			MerchantID:        merchantID,
 			ShopifyCustomerID: sc.ID,
@@ -76,6 +83,10 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 			OrdersCount:       sc.OrdersCount,
 			TotalSpent:        sc.TotalSpent,
 			AddressJSON:       addrJSON,
+			Note:              sc.Note,
+			State:             sc.State,
+			VerifiedEmail:     sc.VerifiedEmail,
+			ShopifyCreatedAt:  shopifyCreatedAt,
 			UpdatedAt:         time.Now(),
 		}
 
