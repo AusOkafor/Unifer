@@ -3,8 +3,10 @@ package identity
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -86,20 +88,35 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 	persisted := 0
 	for _, memberIDs := range clusters {
 		hash := groupHash(memberIDs)
-		maxScore := maxClusterScore(pairs, memberIDs)
+		topPair := topPairForCluster(pairs, memberIDs)
+		maxScore := 0.0
+		if topPair != nil {
+			maxScore = topPair.Score
+		}
 
+		riskLevel := classifyRisk(maxScore)
 		g := &models.DuplicateGroup{
 			MerchantID:      merchantID,
 			GroupHash:       hash,
 			CustomerIDs:     int64SliceToPQ(memberIDs),
 			ConfidenceScore: maxScore,
 			Status:          "pending",
+			RiskLevel:       &riskLevel,
 		}
 
 		// Generate intelligence report from cached customer data.
 		if d.analyzer != nil {
 			members := gatherMembers(memberIDs, customerByID)
 			if report, err := d.analyzer.Analyze(members); err == nil {
+				// Attach per-field breakdown from the top-scoring pair.
+				if topPair != nil {
+					report.Breakdown = &intelligence.FieldBreakdown{
+						EmailScore:   topPair.EmailSim,
+						NameScore:    topPair.NameSim,
+						PhoneScore:   topPair.PhoneSim,
+						AddressScore: topPair.AddressSim,
+					}
+				}
 				if raw, err := report.ToRawJSON(); err == nil {
 					g.IntelligenceJSON = raw
 					g.ReadinessScore = &report.ReadinessScore
@@ -120,9 +137,62 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 	return nil
 }
 
-// scorePairs generates scored pairs using email-domain bucketing + cross-domain name pass.
+// scorePairs generates scored pairs using three bucket strategies:
+//  1. Email-domain bucketing (primary)
+//  2. Phone suffix bucketing (last 7 digits of normalized phone)
+//  3. Address hash bucketing (city+zip combination)
+//
+// A seen map deduplicates pairs found by multiple buckets.
 func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
-	// Bucket by email domain
+	seen := make(map[[2]int64]struct{})
+	var pairs []ScoredPair
+
+	addPair := func(a, b *models.CustomerCache) {
+		lo, hi := a.ShopifyCustomerID, b.ShopifyCustomerID
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		key := [2]int64{lo, hi}
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		s := ScorePair(a, b)
+		d.log.Debug().
+			Int64("a", a.ShopifyCustomerID).
+			Int64("b", b.ShopifyCustomerID).
+			Str("aName", a.Name).
+			Str("bName", b.Name).
+			Float64("email", s.EmailSim).
+			Float64("name", s.NameSim).
+			Float64("phone", s.PhoneSim).
+			Float64("addr", s.AddressSim).
+			Float64("combined", s.Combined).
+			Msg("bucket pair score")
+		if s.Combined >= MinConfidence {
+			pairs = append(pairs, ScoredPair{
+				A:          a.ShopifyCustomerID,
+				B:          b.ShopifyCustomerID,
+				Score:      s.Combined,
+				EmailSim:   s.EmailSim,
+				NameSim:    s.NameSim,
+				PhoneSim:   s.PhoneSim,
+				AddressSim: s.AddressSim,
+			})
+		}
+	}
+
+	scoreBucket := func(buckets map[string][]int) {
+		for _, indices := range buckets {
+			for i := 0; i < len(indices); i++ {
+				for j := i + 1; j < len(indices); j++ {
+					addPair(&customers[indices[i]], &customers[indices[j]])
+				}
+			}
+		}
+	}
+
+	// Bucket 1: email domain
 	domainBuckets := make(map[string][]int)
 	for i, c := range customers {
 		domain := utils.EmailDomain(c.Email)
@@ -131,55 +201,41 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 		}
 		domainBuckets[domain] = append(domainBuckets[domain], i)
 	}
+	scoreBucket(domainBuckets)
 
-	var pairs []ScoredPair
-
-	// Score within each domain bucket
-	for _, indices := range domainBuckets {
-		for i := 0; i < len(indices); i++ {
-			for j := i + 1; j < len(indices); j++ {
-				a := &customers[indices[i]]
-				b := &customers[indices[j]]
-				s := ScorePair(a, b)
-				d.log.Debug().
-					Int64("a", a.ShopifyCustomerID).
-					Int64("b", b.ShopifyCustomerID).
-					Str("aName", a.Name).
-					Str("bName", b.Name).
-					Float64("email", s.EmailSim).
-					Float64("name", s.NameSim).
-					Float64("phone", s.PhoneSim).
-					Float64("addr", s.AddressSim).
-					Float64("combined", s.Combined).
-					Msg("bucket pair score")
-				if s.Combined >= MinConfidence {
-					pairs = append(pairs, ScoredPair{
-						A:     a.ShopifyCustomerID,
-						B:     b.ShopifyCustomerID,
-						Score: s.Combined,
-					})
-				}
-			}
+	// Bucket 2: phone suffix (last 7 digits) — catches cross-email phone matches
+	phoneBuckets := make(map[string][]int)
+	for i, c := range customers {
+		phone := utils.NormalizePhone(c.Phone)
+		if len(phone) >= 7 {
+			suffix := phone[len(phone)-7:]
+			phoneBuckets[suffix] = append(phoneBuckets[suffix], i)
 		}
 	}
+	scoreBucket(phoneBuckets)
 
-	// Cross-domain pass: compare by name only for customers with different domains
-	// (catches name matches like john@gmail.com / john@company.com)
-	// Limit to 500 customers to avoid explosive cross-product
+	// Bucket 3: address hash (city+zip) — catches shared-address households
+	addrBuckets := make(map[string][]int)
+	for i, c := range customers {
+		key := addressBucketKey(&c)
+		if key != "" {
+			addrBuckets[key] = append(addrBuckets[key], i)
+		}
+	}
+	scoreBucket(addrBuckets)
+
+	// Cross-domain pass: high-confidence name match for customers with different
+	// email domains (e.g. john@gmail.com / john@company.com).
+	// Uses the shared seen map so pairs found by buckets above are not rescored.
+	// Limit to 500 customers to avoid O(n²) at scale.
 	if len(customers) <= 500 {
-		seen := make(map[[2]int64]bool)
 		for i := 0; i < len(customers); i++ {
 			for j := i + 1; j < len(customers); j++ {
 				a := &customers[i]
 				b := &customers[j]
 				if utils.EmailDomain(a.Email) == utils.EmailDomain(b.Email) {
-					continue // already covered above
+					continue // already covered by domain bucket
 				}
-				key := [2]int64{a.ShopifyCustomerID, b.ShopifyCustomerID}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
 				nameSim := jaroWinkler(a.Name, b.Name)
 				d.log.Debug().
 					Int64("a", a.ShopifyCustomerID).
@@ -188,30 +244,32 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 					Str("bName", b.Name).
 					Float64("nameSim", nameSim).
 					Msg("cross-domain name check")
-				if nameSim >= 0.82 { // high name similarity → score the full pair
-					s := ScorePair(a, b)
-					d.log.Debug().
-						Int64("a", a.ShopifyCustomerID).
-						Int64("b", b.ShopifyCustomerID).
-						Float64("email", s.EmailSim).
-						Float64("name", s.NameSim).
-						Float64("phone", s.PhoneSim).
-						Float64("addr", s.AddressSim).
-						Float64("combined", s.Combined).
-						Msg("cross-domain pair score")
-					if s.Combined >= MinConfidence {
-						pairs = append(pairs, ScoredPair{
-							A:     a.ShopifyCustomerID,
-							B:     b.ShopifyCustomerID,
-							Score: s.Combined,
-						})
-					}
+				if nameSim >= 0.82 {
+					addPair(a, b) // addPair deduplicates internally
 				}
 			}
 		}
 	}
 
 	return pairs
+}
+
+// addressBucketKey builds a normalized city+zip key used to bucket customers
+// who may share a household. Returns "" if neither city nor zip is available.
+func addressBucketKey(c *models.CustomerCache) string {
+	if len(c.AddressJSON) == 0 {
+		return ""
+	}
+	var m map[string]string
+	if err := json.Unmarshal(c.AddressJSON, &m); err != nil {
+		return ""
+	}
+	city := strings.ToLower(strings.TrimSpace(m["city"]))
+	zip := strings.ToLower(strings.TrimSpace(m["zip"]))
+	if city == "" && zip == "" {
+		return ""
+	}
+	return city + "|" + zip
 }
 
 // gatherMembers collects full CustomerCache rows for a list of Shopify IDs.
@@ -237,18 +295,35 @@ func groupHash(ids []int64) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func maxClusterScore(pairs []ScoredPair, memberIDs []int64) float64 {
+// topPairForCluster returns the highest-scoring pair whose both members belong
+// to the given cluster. Returns nil if no pair is found.
+func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 	memberSet := make(map[int64]bool, len(memberIDs))
 	for _, id := range memberIDs {
 		memberSet[id] = true
 	}
-	max := 0.0
-	for _, p := range pairs {
-		if memberSet[p.A] && memberSet[p.B] && p.Score > max {
-			max = p.Score
+	var top *ScoredPair
+	for i := range pairs {
+		p := &pairs[i]
+		if memberSet[p.A] && memberSet[p.B] {
+			if top == nil || p.Score > top.Score {
+				top = p
+			}
 		}
 	}
-	return max
+	return top
+}
+
+// classifyRisk maps a confidence score to a risk level string.
+func classifyRisk(confidence float64) string {
+	switch {
+	case confidence >= 0.90:
+		return "safe"
+	case confidence >= 0.75:
+		return "review"
+	default:
+		return "risky"
+	}
 }
 
 func int64SliceToPQ(ids []int64) []int64 {

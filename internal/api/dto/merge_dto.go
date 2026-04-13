@@ -29,3 +29,19 @@ type PaginatedMergeRecords struct {
 	Limit  int                   `json:"limit"`
 	Offset int                   `json:"offset"`
 }
+
+// SafeBulkMergeResponse is returned when safe-bulk merge jobs are dispatched.
+type SafeBulkMergeResponse struct {
+	Queued  int      `json:"queued"`
+	JobIDs  []string `json:"job_ids"`
+	Skipped int      `json:"skipped"`
+}
+
+// BulkPreviewResponse summarises what a safe-bulk merge would do.
+type BulkPreviewResponse struct {
+	SafeGroupCount   int     `json:"safe_group_count"`
+	TotalCustomers   int     `json:"total_customers"`
+	CombinedOrders   int     `json:"combined_orders"`
+	CombinedRevenue  float64 `json:"combined_revenue"`
+	ConflictCount    int     `json:"conflict_count"`
+}

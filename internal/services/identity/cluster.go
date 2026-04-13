@@ -39,10 +39,15 @@ func (uf *UnionFind) Union(a, b int64) {
 	}
 }
 
-// ScoredPair holds a pair of customer IDs and their combined similarity score.
+// ScoredPair holds a pair of customer IDs, their combined similarity score,
+// and the per-field component scores that produced it.
 type ScoredPair struct {
-	A, B  int64
-	Score float64
+	A, B         int64
+	Score        float64
+	EmailSim     float64
+	NameSim      float64
+	PhoneSim     float64
+	AddressSim   float64
 }
 
 // ClusterPairs groups customer IDs into duplicate clusters using union-find.

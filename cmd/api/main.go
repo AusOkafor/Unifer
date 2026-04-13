@@ -109,7 +109,7 @@ func main() {
 	h := &server.Handlers{
 		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.JWTSecret, cfg.FrontendURL, log),
 		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, settingsRepo, log),
-		Merge:     handlers.NewMergeHandler(mergeRepo, dispatcher, log),
+		Merge:     handlers.NewMergeHandler(mergeRepo, duplicateRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),
 		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, dispatcher, log),
 		Metrics:   handlers.NewMetricsHandler(sqlDB, log),

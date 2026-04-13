@@ -10,6 +10,16 @@ import (
 	"merger/backend/internal/models"
 )
 
+// FieldBreakdown holds per-field similarity scores (0–1) for the top-scoring
+// pair in the cluster. Stored in intelligence_json and surfaced in the API
+// so the frontend can render a confidence breakdown chart.
+type FieldBreakdown struct {
+	EmailScore   float64 `json:"email_score"`
+	NameScore    float64 `json:"name_score"`
+	PhoneScore   float64 `json:"phone_score"`
+	AddressScore float64 `json:"address_score"`
+}
+
 // IntelligenceReport is the full pre-merge analysis stored against a duplicate group.
 type IntelligenceReport struct {
 	RecommendedPrimary int64             `json:"recommended_primary"`
@@ -17,6 +27,7 @@ type IntelligenceReport struct {
 	Reasoning          []string          `json:"reasoning"`
 	RiskFlags          []string          `json:"risk_flags"`
 	Simulation         SimulationPreview `json:"simulation"`
+	Breakdown          *FieldBreakdown   `json:"breakdown,omitempty"`
 	ComputedAt         time.Time         `json:"computed_at"`
 }
 

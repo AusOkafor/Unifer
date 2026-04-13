@@ -14,6 +14,8 @@ type DuplicateRepository interface {
 	CreateGroup(ctx context.Context, g *models.DuplicateGroup) error
 	DeletePendingByMerchant(ctx context.Context, merchantID uuid.UUID) (int64, error)
 	ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, minConfidence float64, limit, offset int) ([]models.DuplicateGroup, int, error)
+	// ListSafeGroups returns all pending groups classified as 'safe' for the given merchant.
+	ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 }
@@ -29,12 +31,13 @@ func NewDuplicateRepo(db *sqlx.DB) DuplicateRepository {
 func (r *duplicateRepo) CreateGroup(ctx context.Context, g *models.DuplicateGroup) error {
 	query := `
 		INSERT INTO duplicate_groups
-			(merchant_id, group_hash, customer_ids, confidence_score, status, readiness_score, intelligence_json)
+			(merchant_id, group_hash, customer_ids, confidence_score, status, risk_level, readiness_score, intelligence_json)
 		VALUES
-			(:merchant_id, :group_hash, :customer_ids, :confidence_score, :status, :readiness_score, :intelligence_json)
+			(:merchant_id, :group_hash, :customer_ids, :confidence_score, :status, :risk_level, :readiness_score, :intelligence_json)
 		ON CONFLICT (merchant_id, group_hash) WHERE status != 'merged' DO UPDATE SET
 			confidence_score  = EXCLUDED.confidence_score,
 			customer_ids      = EXCLUDED.customer_ids,
+			risk_level        = EXCLUDED.risk_level,
 			readiness_score   = EXCLUDED.readiness_score,
 			intelligence_json = EXCLUDED.intelligence_json
 		RETURNING id, created_at`
@@ -107,6 +110,20 @@ func (r *duplicateRepo) ListByMerchant(ctx context.Context, merchantID uuid.UUID
 	}
 
 	return groups, total, nil
+}
+
+func (r *duplicateRepo) ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error) {
+	var groups []models.DuplicateGroup
+	err := r.db.SelectContext(ctx, &groups,
+		`SELECT * FROM duplicate_groups
+		 WHERE merchant_id = $1 AND risk_level = 'safe' AND status = 'pending'
+		 ORDER BY confidence_score DESC`,
+		merchantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list safe groups: %w", err)
+	}
+	return groups, nil
 }
 
 func (r *duplicateRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error) {

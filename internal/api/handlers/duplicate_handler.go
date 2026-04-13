@@ -70,6 +70,7 @@ func (h *DuplicateHandler) List(c *gin.Context) {
 		items[i] = dto.DuplicateGroupResponse{
 			ID:             g.ID.String(),
 			Confidence:     g.ConfidenceScore,
+			RiskLevel:      g.RiskLevel,
 			ReadinessScore: g.ReadinessScore,
 			Status:         g.Status,
 			CustomerIDs:    []int64(g.CustomerIDs),
@@ -109,6 +110,7 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 		DuplicateGroupResponse: dto.DuplicateGroupResponse{
 			ID:             group.ID.String(),
 			Confidence:     group.ConfidenceScore,
+			RiskLevel:      group.RiskLevel,
 			ReadinessScore: group.ReadinessScore,
 			Status:         group.Status,
 			CustomerIDs:    []int64(group.CustomerIDs),
@@ -214,11 +216,20 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 	if riskFlags == nil {
 		riskFlags = []string{}
 	}
-	return &dto.IntelligenceDTO{
+	idto := &dto.IntelligenceDTO{
 		RecommendedPrimary: r.RecommendedPrimary,
 		ReadinessScore:     r.ReadinessScore,
 		Reasoning:          reasoning,
 		RiskFlags:          riskFlags,
 		Simulation:         sim,
 	}
+	if r.Breakdown != nil {
+		idto.Breakdown = &dto.FieldBreakdownDTO{
+			EmailScore:   r.Breakdown.EmailScore,
+			NameScore:    r.Breakdown.NameScore,
+			PhoneScore:   r.Breakdown.PhoneScore,
+			AddressScore: r.Breakdown.AddressScore,
+		}
+	}
+	return idto
 }
