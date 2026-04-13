@@ -34,10 +34,11 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	var (
-		totalCustomers  int
-		pendingGroups   int
-		mergesCompleted int
-		recentActivity  []activityItem
+		totalCustomers      int
+		pendingGroups       int
+		highConfidenceCount int
+		mergesCompleted     int
+		recentActivity      []activityItem
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -50,6 +51,12 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 	g.Go(func() error {
 		return h.db.GetContext(gCtx, &pendingGroups,
 			`SELECT COUNT(*) FROM duplicate_groups WHERE merchant_id = $1 AND status = 'pending'`, merchant.ID)
+	})
+
+	// High-confidence groups (≥85%) that are safe to merge immediately.
+	g.Go(func() error {
+		return h.db.GetContext(gCtx, &highConfidenceCount,
+			`SELECT COUNT(*) FROM duplicate_groups WHERE merchant_id = $1 AND status = 'pending' AND confidence_score >= 0.85`, merchant.ID)
 	})
 
 	g.Go(func() error {
@@ -68,19 +75,23 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 	}
 
 	healthScore := 100.0
+	duplicateRate := 0.0
 	if totalCustomers > 0 {
 		healthScore = (1.0 - float64(pendingGroups)/float64(totalCustomers)) * 100
 		if healthScore < 0 {
 			healthScore = 0
 		}
+		duplicateRate = float64(pendingGroups) / float64(totalCustomers) * 100
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"health_score":      healthScore,
-		"total_customers":   totalCustomers,
-		"duplicate_count":   pendingGroups,
-		"merges_completed":  mergesCompleted,
-		"recent_activity":   recentActivity,
+		"health_score":          healthScore,
+		"duplicate_rate":        duplicateRate,
+		"total_customers":       totalCustomers,
+		"duplicate_count":       pendingGroups,
+		"high_confidence_count": highConfidenceCount,
+		"merges_completed":      mergesCompleted,
+		"recent_activity":       recentActivity,
 	})
 }
 
