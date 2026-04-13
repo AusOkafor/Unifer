@@ -137,6 +137,7 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 				Tags:              tags,
 				OrdersCount:       cached.OrdersCount,
 				TotalSpent:        cached.TotalSpent,
+				AddressJSON:       cached.AddressJSON,
 			})
 		}
 	}

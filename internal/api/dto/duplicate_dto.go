@@ -1,16 +1,20 @@
 package dto
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // CustomerDetailDTO is enriched customer data returned in the single-group detail response.
 type CustomerDetailDTO struct {
-	ShopifyCustomerID int64    `json:"shopify_customer_id"`
-	Name              string   `json:"name"`
-	Email             string   `json:"email"`
-	Phone             string   `json:"phone"`
-	Tags              []string `json:"tags"`
-	OrdersCount       int      `json:"orders_count"`
-	TotalSpent        string   `json:"total_spent"`
+	ShopifyCustomerID int64             `json:"shopify_customer_id"`
+	Name              string            `json:"name"`
+	Email             string            `json:"email"`
+	Phone             string            `json:"phone"`
+	Tags              []string          `json:"tags"`
+	OrdersCount       int               `json:"orders_count"`
+	TotalSpent        string            `json:"total_spent"`
+	AddressJSON       json.RawMessage   `json:"address_json,omitempty"`
 }
 
 // FieldConflictDTO describes a field with differing values across customers.
