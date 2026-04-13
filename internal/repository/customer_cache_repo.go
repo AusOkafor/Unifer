@@ -16,6 +16,10 @@ type CustomerCacheRepository interface {
 	FindByMerchant(ctx context.Context, merchantID uuid.UUID) ([]models.CustomerCache, error)
 	FindByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) (*models.CustomerCache, error)
 	DeleteByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) error
+	// UpdateOrderStats patches the orders_count and total_spent fields from an
+	// order webhook without overwriting unrelated fields. No-op if the customer
+	// is not yet in cache.
+	UpdateOrderStats(ctx context.Context, merchantID uuid.UUID, shopifyID int64, ordersCount int, totalSpent string) error
 	// DeleteStaleEntries removes any cached customers for the merchant whose
 	// Shopify ID is NOT in the provided set — used after a full sync to purge
 	// customers that were merged or deleted in Shopify.
@@ -85,6 +89,19 @@ func (r *customerCacheRepo) FindByShopifyID(ctx context.Context, merchantID uuid
 		return nil, fmt.Errorf("customer cache find by shopify id: %w", err)
 	}
 	return &c, nil
+}
+
+func (r *customerCacheRepo) UpdateOrderStats(ctx context.Context, merchantID uuid.UUID, shopifyID int64, ordersCount int, totalSpent string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE customer_cache
+		 SET orders_count = $3, total_spent = $4, updated_at = NOW()
+		 WHERE merchant_id = $1 AND shopify_customer_id = $2`,
+		merchantID, shopifyID, ordersCount, totalSpent,
+	)
+	if err != nil {
+		return fmt.Errorf("customer cache update order stats: %w", err)
+	}
+	return nil
 }
 
 func (r *customerCacheRepo) DeleteByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) error {

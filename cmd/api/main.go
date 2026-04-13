@@ -80,6 +80,7 @@ func main() {
 
 	// --- Queue ---
 	q := queue.New(redisClient)
+	webhookIdempotency := queue.NewWebhookIdempotencyStore(redisClient)
 
 	// --- Job dispatcher (used by handlers; processor wired below) ---
 	dispatcher := jobs.NewDispatcher(jobRepo, q, log)
@@ -121,6 +122,7 @@ func main() {
 			customerCacheRepo,
 			settingsRepo,
 			dispatcher,
+			webhookIdempotency,
 			log,
 		),
 	}

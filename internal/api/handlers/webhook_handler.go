@@ -22,12 +22,23 @@ type JobDispatcher interface {
 	Dispatch(ctx context.Context, jobType string, merchantID uuid.UUID, payload interface{}) (uuid.UUID, error)
 }
 
+// IdempotencyStore deduplicates repeated Shopify webhook deliveries.
+// Shopify retries failed webhooks up to 19 times over 48 hours; without
+// deduplication the same event would trigger multiple detection jobs or
+// cache mutations.
+type IdempotencyStore interface {
+	// IsProcessed returns true if this webhook ID has already been handled.
+	// It atomically marks unseen IDs as processed on the first call.
+	IsProcessed(ctx context.Context, webhookID string) (bool, error)
+}
+
 type WebhookHandler struct {
 	shopifySecret     string
 	merchantRepo      repository.MerchantRepository
 	customerCacheRepo repository.CustomerCacheRepository
 	settingsRepo      repository.SettingsRepository
 	jobDispatcher     JobDispatcher
+	idempotency       IdempotencyStore // may be nil — dedup skipped if not wired
 	log               zerolog.Logger
 }
 
@@ -37,6 +48,7 @@ func NewWebhookHandler(
 	customerCacheRepo repository.CustomerCacheRepository,
 	settingsRepo repository.SettingsRepository,
 	jobDispatcher JobDispatcher,
+	idempotency IdempotencyStore,
 	log zerolog.Logger,
 ) *WebhookHandler {
 	return &WebhookHandler{
@@ -45,6 +57,7 @@ func NewWebhookHandler(
 		customerCacheRepo: customerCacheRepo,
 		settingsRepo:      settingsRepo,
 		jobDispatcher:     jobDispatcher,
+		idempotency:       idempotency,
 		log:               log,
 	}
 }
@@ -63,6 +76,23 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 		h.log.Warn().Str("ip", c.ClientIP()).Msg("webhook HMAC validation failed")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 		return
+	}
+
+	// Idempotency check — Shopify may retry a webhook up to 19 times over 48 hours.
+	// Drop duplicates before doing any DB or queue work.
+	if h.idempotency != nil {
+		webhookID := c.GetHeader("X-Shopify-Webhook-Id")
+		if webhookID != "" {
+			already, err := h.idempotency.IsProcessed(c.Request.Context(), webhookID)
+			if err != nil {
+				// Redis error: log but continue — better to process twice than lose events.
+				h.log.Warn().Err(err).Str("webhook_id", webhookID).Msg("idempotency check failed, processing anyway")
+			} else if already {
+				h.log.Debug().Str("webhook_id", webhookID).Msg("duplicate webhook delivery — skipped")
+				c.JSON(http.StatusOK, gin.H{})
+				return
+			}
+		}
 	}
 
 	shop := c.GetHeader("X-Shopify-Shop-Domain")
@@ -98,6 +128,8 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 		h.handleCustomerUpsert(c, body, merchant, topic)
 	case "customers/delete":
 		h.handleCustomerDelete(c, body, merchant)
+	case "orders/create", "orders/updated":
+		h.handleOrderUpsert(c, body, merchant, topic)
 	case "app/uninstalled":
 		h.handleAppUninstalled(c, merchant)
 	default:
@@ -193,6 +225,45 @@ func buildWebhookAddressJSON(addresses []shopifysvc.Address) []byte {
 	}
 	b, _ := json.Marshal(m)
 	return b
+}
+
+// handleOrderUpsert handles orders/create and orders/updated webhooks.
+// It patches the customer cache with the latest order stats (order count and
+// total spent) that Shopify includes in the order payload, so the cache stays
+// accurate without a full customer sync. If the customer isn't cached yet the
+// UPDATE is a no-op — the next full sync will backfill them.
+func (h *WebhookHandler) handleOrderUpsert(c *gin.Context, body []byte, merchant *models.Merchant, topic string) {
+	payload, err := shopifysvc.ParseOrderPayload(body)
+	if err != nil {
+		h.log.Error().Err(err).Str("topic", topic).Msg("parse order webhook payload")
+		return
+	}
+
+	if payload.Customer.ID == 0 {
+		// Draft orders and orders without an associated customer have no ID.
+		h.log.Debug().Int64("order_id", payload.ID).Msg("order webhook: no customer — skipping cache update")
+		return
+	}
+
+	if err := h.customerCacheRepo.UpdateOrderStats(
+		c.Request.Context(),
+		merchant.ID,
+		payload.Customer.ID,
+		payload.Customer.OrdersCount,
+		payload.Customer.TotalSpent,
+	); err != nil {
+		h.log.Error().Err(err).
+			Int64("shopify_customer_id", payload.Customer.ID).
+			Str("topic", topic).
+			Msg("order webhook: customer cache update failed")
+		return
+	}
+
+	h.log.Debug().
+		Int64("order_id", payload.ID).
+		Int64("customer_id", payload.Customer.ID).
+		Str("shop", merchant.ShopDomain).
+		Msg("order webhook: customer order stats updated")
 }
 
 func (h *WebhookHandler) handleCustomerDelete(c *gin.Context, body []byte, merchant *models.Merchant) {
