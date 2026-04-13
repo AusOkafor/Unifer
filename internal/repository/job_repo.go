@@ -100,8 +100,11 @@ func (r *jobRepo) ListStuckJobs(ctx context.Context, maxAge time.Duration) ([]mo
 
 func (r *jobRepo) CountPendingByType(ctx context.Context, merchantID uuid.UUID, jobType string) (int, error) {
 	var count int
+	// Only debounce on 'queued' — not 'processing'. A job stuck in processing
+	// (e.g., worker crashed) should not block new webhook-triggered detections.
+	// The recovery sweep handles re-queuing stuck jobs separately.
 	err := r.db.GetContext(ctx, &count,
-		`SELECT COUNT(*) FROM jobs WHERE merchant_id = $1 AND type = $2 AND status IN ('queued', 'processing')`,
+		`SELECT COUNT(*) FROM jobs WHERE merchant_id = $1 AND type = $2 AND status = 'queued'`,
 		merchantID, jobType,
 	)
 	if err != nil {

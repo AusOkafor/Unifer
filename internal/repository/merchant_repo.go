@@ -14,6 +14,7 @@ type MerchantRepository interface {
 	Create(ctx context.Context, m *models.Merchant) error
 	FindByDomain(ctx context.Context, domain string) (*models.Merchant, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.Merchant, error)
+	ListAll(ctx context.Context) ([]models.Merchant, error)
 	UpdateToken(ctx context.Context, id uuid.UUID, encryptedToken string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -60,6 +61,15 @@ func (r *merchantRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.Merc
 		return nil, fmt.Errorf("merchant find by id: %w", err)
 	}
 	return &m, nil
+}
+
+func (r *merchantRepo) ListAll(ctx context.Context) ([]models.Merchant, error) {
+	var merchants []models.Merchant
+	err := r.db.SelectContext(ctx, &merchants, `SELECT * FROM merchants ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("merchant list all: %w", err)
+	}
+	return merchants, nil
 }
 
 func (r *merchantRepo) Delete(ctx context.Context, id uuid.UUID) error {

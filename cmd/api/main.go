@@ -20,6 +20,7 @@ import (
 	"merger/backend/internal/services/jobs"
 	mergesvc "merger/backend/internal/services/merge"
 	snapshotsvc "merger/backend/internal/services/snapshot"
+	shopifysvc "merger/backend/internal/services/shopify"
 	syncsvc "merger/backend/internal/services/sync"
 	"merger/backend/internal/utils"
 	"merger/backend/pkg/shopifyauth"
@@ -134,6 +135,32 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Register Shopify webhooks for all existing merchants on startup.
+	// This ensures webhooks are always registered even after redeployments,
+	// and fixes merchants whose install happened before RegisterAll was wired up.
+	go func() {
+		ctx := context.Background()
+		merchants, err := merchantRepo.ListAll(ctx)
+		if err != nil {
+			log.Warn().Err(err).Msg("startup: failed to list merchants for webhook registration")
+			return
+		}
+		for _, m := range merchants {
+			token, err := encryptor.Decrypt(m.AccessTokenEnc)
+			if err != nil {
+				log.Warn().Err(err).Str("shop", m.ShopDomain).Msg("startup: decrypt token failed")
+				continue
+			}
+			client := shopifysvc.NewClient(m.ShopDomain, token, log)
+			whSvc := shopifysvc.NewWebhookService(client)
+			if err := whSvc.RegisterAll(ctx, cfg.AppURL); err != nil {
+				log.Warn().Err(err).Str("shop", m.ShopDomain).Msg("startup: webhook registration failed")
+			} else {
+				log.Info().Str("shop", m.ShopDomain).Msg("startup: webhooks registered")
+			}
+		}
+	}()
 
 	// Start worker in background
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
