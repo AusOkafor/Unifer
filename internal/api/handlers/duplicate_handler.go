@@ -151,6 +151,37 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// Dismiss marks a duplicate group as dismissed (not a real duplicate).
+// Dismissed groups are excluded from the default list view.
+func (h *DuplicateHandler) Dismiss(c *gin.Context) {
+	merchant := middleware.GetMerchant(c)
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	group, err := h.duplicateRepo.FindByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "duplicate group not found"})
+		return
+	}
+
+	if group.MerchantID != merchant.ID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	if err := h.duplicateRepo.UpdateStatus(c.Request.Context(), id, "dismissed"); err != nil {
+		h.log.Error().Err(err).Str("group_id", id.String()).Msg("dismiss group")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to dismiss group"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "dismissed"})
+}
+
 // buildIntelligenceDTO converts an IntelligenceReport to the API DTO.
 func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceDTO {
 	fieldConflicts := make([]dto.FieldConflictDTO, 0, len(r.Simulation.FieldConflicts))

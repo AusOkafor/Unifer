@@ -83,9 +83,11 @@ func (s *Server) registerRoutes() {
 	if s.h.Duplicate != nil {
 		api.GET("/duplicates", s.h.Duplicate.List)
 		api.GET("/duplicates/:id", s.h.Duplicate.Get)
+		api.POST("/duplicates/:id/dismiss", s.h.Duplicate.Dismiss)
 	} else {
 		api.GET("/duplicates", s.stub("duplicates: list"))
 		api.GET("/duplicates/:id", s.stub("duplicates: get"))
+		api.POST("/duplicates/:id/dismiss", s.stub("duplicates: dismiss"))
 	}
 
 	if s.h.Merge != nil {
