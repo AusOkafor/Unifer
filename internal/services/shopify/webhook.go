@@ -33,11 +33,15 @@ type webhookListResponse struct {
 	} `json:"webhooks"`
 }
 
-// RequiredTopics are the Shopify webhook topics the app must be subscribed to.
+// RequiredTopics are the Shopify webhook topics the app subscribes to via the
+// Admin API. GDPR topics (customers/data_request, customers/redact,
+// shop/redact) are configured separately in the Partner Dashboard and cannot
+// be registered here — they are handled by the same webhook endpoint.
 var RequiredTopics = []string{
 	"customers/create",
 	"customers/update",
 	"customers/delete",
+	"app/uninstalled",
 }
 
 // RegisterAll subscribes to all required customer webhook topics for the shop.

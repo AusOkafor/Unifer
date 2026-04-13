@@ -15,6 +15,7 @@ type MerchantRepository interface {
 	FindByDomain(ctx context.Context, domain string) (*models.Merchant, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.Merchant, error)
 	UpdateToken(ctx context.Context, id uuid.UUID, encryptedToken string) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type merchantRepo struct {
@@ -59,6 +60,14 @@ func (r *merchantRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.Merc
 		return nil, fmt.Errorf("merchant find by id: %w", err)
 	}
 	return &m, nil
+}
+
+func (r *merchantRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM merchants WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("merchant delete: %w", err)
+	}
+	return nil
 }
 
 func (r *merchantRepo) UpdateToken(ctx context.Context, id uuid.UUID, encryptedToken string) error {

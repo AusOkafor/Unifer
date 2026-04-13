@@ -67,6 +67,24 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 	shop := c.GetHeader("X-Shopify-Shop-Domain")
 	topic := c.GetHeader("X-Shopify-Topic")
 
+	// GDPR and app/uninstalled topics must always return 200 — even if the
+	// merchant is no longer in our database (shop/redact arrives 48 days after
+	// uninstall). Handle these before the merchant lookup.
+	switch topic {
+	case "customers/data_request":
+		h.handleDataRequest(c, body, shop)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	case "customers/redact":
+		h.handleCustomerRedact(c, body, shop)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	case "shop/redact":
+		h.handleShopRedact(c, body, shop)
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
 	merchant, err := h.merchantRepo.FindByDomain(c.Request.Context(), shop)
 	if err != nil {
 		h.log.Warn().Str("shop", shop).Msg("webhook from unknown merchant")
@@ -79,6 +97,8 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 		h.handleCustomerUpsert(c, body, merchant, topic)
 	case "customers/delete":
 		h.handleCustomerDelete(c, body, merchant)
+	case "app/uninstalled":
+		h.handleAppUninstalled(c, merchant)
 	default:
 		h.log.Debug().Str("topic", topic).Msg("unhandled webhook topic")
 	}
@@ -175,4 +195,87 @@ func (h *WebhookHandler) handleCustomerDelete(c *gin.Context, body []byte, merch
 	if err := h.customerCacheRepo.DeleteByShopifyID(c.Request.Context(), merchant.ID, payload.ID); err != nil {
 		h.log.Error().Err(err).Int64("shopify_id", payload.ID).Msg("customer cache delete")
 	}
+}
+
+// handleDataRequest handles the GDPR customers/data_request webhook.
+// Shopify requires a response within 30 days. Our app only caches operational
+// data sourced from Shopify itself (email, name, phone, address) — we
+// acknowledge the request and log it. No additional export is needed because
+// the authoritative copy of all PII remains in Shopify.
+func (h *WebhookHandler) handleDataRequest(c *gin.Context, body []byte, shop string) {
+	var payload struct {
+		Customer struct {
+			ID    int64  `json:"id"`
+			Email string `json:"email"`
+		} `json:"customer"`
+		DataRequest struct {
+			ID int64 `json:"id"`
+		} `json:"data_request"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		h.log.Error().Err(err).Str("shop", shop).Msg("gdpr: parse data_request payload")
+		return
+	}
+	h.log.Info().
+		Str("shop", shop).
+		Int64("customer_id", payload.Customer.ID).
+		Int64("request_id", payload.DataRequest.ID).
+		Msg("gdpr: data_request received — app holds only Shopify-sourced operational cache")
+}
+
+// handleCustomerRedact handles the GDPR customers/redact webhook.
+// Deletes the customer's cached data from our database within the required
+// 30-day window.
+func (h *WebhookHandler) handleCustomerRedact(c *gin.Context, body []byte, shop string) {
+	var payload struct {
+		Customer struct {
+			ID int64 `json:"id"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		h.log.Error().Err(err).Str("shop", shop).Msg("gdpr: parse customers/redact payload")
+		return
+	}
+
+	merchant, err := h.merchantRepo.FindByDomain(c.Request.Context(), shop)
+	if err != nil {
+		// Merchant already removed — nothing to delete.
+		h.log.Debug().Str("shop", shop).Msg("gdpr: customers/redact — merchant not found, skipping")
+		return
+	}
+
+	if err := h.customerCacheRepo.DeleteByShopifyID(c.Request.Context(), merchant.ID, payload.Customer.ID); err != nil {
+		h.log.Error().Err(err).Int64("shopify_id", payload.Customer.ID).Msg("gdpr: customer redact delete failed")
+		return
+	}
+	h.log.Info().Str("shop", shop).Int64("shopify_id", payload.Customer.ID).Msg("gdpr: customer data redacted")
+}
+
+// handleShopRedact handles the GDPR shop/redact webhook.
+// Shopify sends this 48 days after app uninstall. Deletes all remaining
+// merchant data (cascades to customer_cache, duplicate_groups, etc.).
+func (h *WebhookHandler) handleShopRedact(c *gin.Context, body []byte, shop string) {
+	merchant, err := h.merchantRepo.FindByDomain(c.Request.Context(), shop)
+	if err != nil {
+		// Merchant already deleted (e.g., by app/uninstalled handler). Nothing to do.
+		h.log.Debug().Str("shop", shop).Msg("gdpr: shop/redact — merchant not found, already clean")
+		return
+	}
+
+	if err := h.merchantRepo.Delete(c.Request.Context(), merchant.ID); err != nil {
+		h.log.Error().Err(err).Str("shop", shop).Msg("gdpr: shop/redact delete failed")
+		return
+	}
+	h.log.Info().Str("shop", shop).Msg("gdpr: all merchant data redacted")
+}
+
+// handleAppUninstalled handles the app/uninstalled webhook.
+// Deletes the merchant and all their data immediately upon uninstall.
+// shop/redact will arrive 48 days later as a final cleanup sweep.
+func (h *WebhookHandler) handleAppUninstalled(c *gin.Context, merchant *models.Merchant) {
+	if err := h.merchantRepo.Delete(c.Request.Context(), merchant.ID); err != nil {
+		h.log.Error().Err(err).Str("shop", merchant.ShopDomain).Msg("app/uninstalled: merchant delete failed")
+		return
+	}
+	h.log.Info().Str("shop", merchant.ShopDomain).Msg("app/uninstalled: merchant data deleted")
 }
