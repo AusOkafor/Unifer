@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -137,9 +136,10 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie("session", sessionToken, int(7*24*time.Hour/time.Second), "/", "", true, true)
 
-	// Pass shop and token to the frontend so it can store them for API calls.
-	redirectURL := fmt.Sprintf("%s?shop=%s&token=%s",
-		strings.TrimRight(h.frontendURL, "/"), shop, sessionToken)
+	// Redirect into the Shopify admin so the app opens embedded.
+	// The session cookie (SameSite=None; Secure) was already set above and will
+	// be sent on subsequent cross-origin API calls from the embedded frontend.
+	redirectURL := fmt.Sprintf("https://%s/admin/apps/%s", shop, h.oauthCfg.APIKey)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
