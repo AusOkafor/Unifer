@@ -50,11 +50,15 @@ type ScoredPair struct {
 }
 
 // ClusterPairs groups customer IDs into duplicate clusters using union-find,
-// with two additional guards that eliminate the classic union-find failure modes:
+// with three additional guards that eliminate the classic union-find failure modes:
 //
 //  1. Threshold guard: only pairs with score ≥ threshold enter the graph.
 //
-//  2. Mutual-proximity guard: only Union(A, B) when this edge score is ≥ 90%
+//  2. Absolute-floor guard: reject any edge with score < 0.70, even if it clears
+//     the threshold. This prevents high-threshold searches from accidentally
+//     accepting weak transitive edges when threshold is tuned down for testing.
+//
+//  3. Mutual-proximity guard: only Union(A, B) when this edge score is ≥ 90%
 //     of BOTH A's and B's personal best score. This kills weak transitive bridges:
 //     if A's real match is C (0.95) and B tries to pull A in via a 0.66 edge,
 //     the proximity check blocks it — 0.66 < 0.95 × 0.90 = 0.855.
@@ -77,6 +81,14 @@ func ClusterPairs(pairs []ScoredPair, threshold float64) map[int64][]int64 {
 	for _, p := range pairs {
 		// Threshold guard
 		if p.Score < threshold {
+			continue
+		}
+
+		// Absolute-floor guard: no edge below 0.70 ever enters the graph,
+		// regardless of threshold setting. Prevents degraded behaviour when
+		// threshold is tuned below this value during experiments.
+		const absoluteFloor = 0.70
+		if p.Score < absoluteFloor {
 			continue
 		}
 
@@ -105,4 +117,35 @@ func ClusterPairs(pairs []ScoredPair, threshold float64) map[int64][]int64 {
 	}
 
 	return groups
+}
+
+// WeakestClusterEdge finds the lowest score among all scored pairs whose
+// both endpoints belong to the given cluster. Returns 1.0 if the cluster
+// has only one member or no edges are found (conservative: no penalty applied).
+//
+// Used by the risk classifier to downgrade clusters that contain at least
+// one borderline pair — even if the top pair looks good, a weak interior
+// link indicates the cluster may span unrelated people.
+func WeakestClusterEdge(pairs []ScoredPair, memberIDs []int64) float64 {
+	if len(memberIDs) <= 1 {
+		return 1.0
+	}
+	memberSet := make(map[int64]bool, len(memberIDs))
+	for _, id := range memberIDs {
+		memberSet[id] = true
+	}
+	weakest := 1.0
+	found := false
+	for _, p := range pairs {
+		if memberSet[p.A] && memberSet[p.B] {
+			if !found || p.Score < weakest {
+				weakest = p.Score
+				found = true
+			}
+		}
+	}
+	if !found {
+		return 1.0
+	}
+	return weakest
 }

@@ -98,6 +98,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			maxScore = topPair.Score
 		}
 
+		weakestEdge := WeakestClusterEdge(pairs, memberIDs)
 		members := gatherMembers(memberIDs, customerByID)
 
 		// Generate intelligence report and enrich with breakdown, reasons,
@@ -148,7 +149,9 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		}
 
 		// Risk classification: high-severity conflicts override confidence thresholds.
-		riskLevel := classifyRisk(maxScore, conflictSeverity)
+		// weakestEdge is also passed so clusters with borderline interior links
+		// are capped at "review" even when the top pair looks strong.
+		riskLevel := classifyRisk(maxScore, conflictSeverity, weakestEdge)
 
 		g := &models.DuplicateGroup{
 			MerchantID:       merchantID,
@@ -203,6 +206,20 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 			Float64("phone", s.PhoneSim).
 			Float64("addr", s.AddressSim).
 			Float64("combined", s.Combined).
+			// Signal flags for debugging scoring decisions
+			Bool("sig.emailExact", s.Sig.EmailExact).
+			Bool("sig.emailLocalExact", s.Sig.EmailLocalExact).
+			Bool("sig.emailLocalFuzzy", s.Sig.EmailLocalFuzzy).
+			Bool("sig.emailDomainMatch", s.Sig.EmailDomainMatch).
+			Bool("sig.phoneExact", s.Sig.PhoneExact).
+			Bool("sig.phoneSuffix", s.Sig.PhoneSuffix).
+			Bool("sig.nameHigh", s.Sig.NameHigh).
+			Bool("sig.nameMedium", s.Sig.NameMedium).
+			Bool("sig.addressExact", s.Sig.AddressExact).
+			Bool("sig.addressPartial", s.Sig.AddressPartial).
+			Bool("sig.diffLastName", s.Sig.DifferentLastName).
+			Bool("sig.diffEmailDomain", s.Sig.DifferentEmailDomain).
+			Bool("sig.phoneAsymmetry", s.Sig.PhoneAsymmetry).
 			Msg("bucket pair score")
 		if s.Combined >= MinConfidence {
 			pairs = append(pairs, ScoredPair{
@@ -378,11 +395,15 @@ func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 }
 
 // classifyRisk maps a confidence score to a risk level string.
-// conflictSeverity from DetectConflicts can override the confidence-based
-// classification: a high-severity conflict (e.g. different countries, disabled
-// account) forces "risky" regardless of how similar the names/emails look.
-// A medium-severity conflict caps the result at "review".
-func classifyRisk(confidence float64, conflictSeverity string) string {
+//
+// Priority order (highest to lowest):
+//  1. conflictSeverity from DetectConflicts — structural conflicts override
+//     confidence: "high" → risky, "medium" → caps at review.
+//  2. weakestEdge — a borderline interior link (< 0.70) in the cluster means
+//     the cluster may span unrelated people; cap at "review" regardless of the
+//     top-pair confidence.
+//  3. Confidence thresholds — used when no overrides apply.
+func classifyRisk(confidence float64, conflictSeverity string, weakestEdge float64) string {
 	switch conflictSeverity {
 	case "high":
 		return "risky"
@@ -393,7 +414,18 @@ func classifyRisk(confidence float64, conflictSeverity string) string {
 		}
 		return "risky"
 	}
-	// No structural conflicts — use confidence thresholds.
+
+	// Weak interior link — cluster may include an unrelated person.
+	const weakEdgeFloor = 0.70
+	if weakestEdge < weakEdgeFloor {
+		// Can still be risky if confidence is also low.
+		if confidence >= 0.75 {
+			return "review"
+		}
+		return "risky"
+	}
+
+	// No structural conflicts, strong edges — use confidence thresholds.
 	switch {
 	case confidence >= 0.90:
 		return "safe"
