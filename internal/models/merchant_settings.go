@@ -8,4 +8,62 @@ type MerchantSettings struct {
 	ConfidenceThreshold  int       `db:"confidence_threshold"`
 	RetentionDays        int       `db:"retention_days"`
 	NotificationsEnabled bool      `db:"notifications_enabled"`
+
+	// Detection
+	ScanFrequency string `db:"scan_frequency"` // webhook | daily | manual
+	SignalEmail   bool   `db:"signal_email"`
+	SignalPhone   bool   `db:"signal_phone"`
+	SignalAddress bool   `db:"signal_address"`
+	SignalName    bool   `db:"signal_name"`
+
+	// Risk & Safety
+	RiskPolicy            string `db:"risk_policy"` // safe_only | allow_review | block_risky
+	RequireAnchor         bool   `db:"require_anchor"`
+	WeakLinkProtection    bool   `db:"weak_link_protection"`
+	BlockDifferentCountry bool   `db:"block_different_country"`
+	BlockFraudTags        bool   `db:"block_fraud_tags"`
+	BlockDisabledAccounts bool   `db:"block_disabled_accounts"`
+
+	// Bulk Merge
+	BulkMaxBatch        int  `db:"bulk_max_batch"`
+	BulkDelayMs         int  `db:"bulk_delay_ms"`
+	BulkRequirePreview  bool `db:"bulk_require_preview"`
+
+	// Granular notifications
+	NotifyNewDuplicates bool `db:"notify_new_duplicates"`
+	NotifyHighRisk      bool `db:"notify_high_risk"`
+	NotifyBulkComplete  bool `db:"notify_bulk_complete"`
+	NotifyFailures      bool `db:"notify_failures"`
+
+	// Developer
+	DebugMode bool `db:"debug_mode"`
+}
+
+func DefaultSettings(merchantID uuid.UUID) *MerchantSettings {
+	return &MerchantSettings{
+		MerchantID:            merchantID,
+		AutoDetect:            true,
+		ConfidenceThreshold:   75,
+		RetentionDays:         90,
+		NotificationsEnabled:  true,
+		ScanFrequency:         "webhook",
+		SignalEmail:           true,
+		SignalPhone:           true,
+		SignalAddress:         true,
+		SignalName:            true,
+		RiskPolicy:            "safe_only",
+		RequireAnchor:         true,
+		WeakLinkProtection:    true,
+		BlockDifferentCountry: true,
+		BlockFraudTags:        true,
+		BlockDisabledAccounts: true,
+		BulkMaxBatch:          25,
+		BulkDelayMs:           500,
+		BulkRequirePreview:    true,
+		NotifyNewDuplicates:   true,
+		NotifyHighRisk:        true,
+		NotifyBulkComplete:    true,
+		NotifyFailures:        true,
+		DebugMode:             false,
+	}
 }

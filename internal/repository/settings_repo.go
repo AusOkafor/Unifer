@@ -37,15 +37,50 @@ func (r *settingsRepo) Get(ctx context.Context, merchantID uuid.UUID) (*models.M
 
 func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) error {
 	query := `
-		INSERT INTO merchant_settings
-			(merchant_id, auto_detect, confidence_threshold, retention_days, notifications_enabled)
-		VALUES
-			(:merchant_id, :auto_detect, :confidence_threshold, :retention_days, :notifications_enabled)
+		INSERT INTO merchant_settings (
+			merchant_id, auto_detect, confidence_threshold, retention_days,
+			notifications_enabled,
+			scan_frequency, signal_email, signal_phone, signal_address, signal_name,
+			risk_policy, require_anchor, weak_link_protection,
+			block_different_country, block_fraud_tags, block_disabled_accounts,
+			bulk_max_batch, bulk_delay_ms, bulk_require_preview,
+			notify_new_duplicates, notify_high_risk, notify_bulk_complete, notify_failures,
+			debug_mode
+		) VALUES (
+			:merchant_id, :auto_detect, :confidence_threshold, :retention_days,
+			:notifications_enabled,
+			:scan_frequency, :signal_email, :signal_phone, :signal_address, :signal_name,
+			:risk_policy, :require_anchor, :weak_link_protection,
+			:block_different_country, :block_fraud_tags, :block_disabled_accounts,
+			:bulk_max_batch, :bulk_delay_ms, :bulk_require_preview,
+			:notify_new_duplicates, :notify_high_risk, :notify_bulk_complete, :notify_failures,
+			:debug_mode
+		)
 		ON CONFLICT (merchant_id) DO UPDATE SET
-			auto_detect           = EXCLUDED.auto_detect,
-			confidence_threshold  = EXCLUDED.confidence_threshold,
-			retention_days        = EXCLUDED.retention_days,
-			notifications_enabled = EXCLUDED.notifications_enabled`
+			auto_detect            = EXCLUDED.auto_detect,
+			confidence_threshold   = EXCLUDED.confidence_threshold,
+			retention_days         = EXCLUDED.retention_days,
+			notifications_enabled  = EXCLUDED.notifications_enabled,
+			scan_frequency         = EXCLUDED.scan_frequency,
+			signal_email           = EXCLUDED.signal_email,
+			signal_phone           = EXCLUDED.signal_phone,
+			signal_address         = EXCLUDED.signal_address,
+			signal_name            = EXCLUDED.signal_name,
+			risk_policy            = EXCLUDED.risk_policy,
+			require_anchor         = EXCLUDED.require_anchor,
+			weak_link_protection   = EXCLUDED.weak_link_protection,
+			block_different_country = EXCLUDED.block_different_country,
+			block_fraud_tags       = EXCLUDED.block_fraud_tags,
+			block_disabled_accounts = EXCLUDED.block_disabled_accounts,
+			bulk_max_batch         = EXCLUDED.bulk_max_batch,
+			bulk_delay_ms          = EXCLUDED.bulk_delay_ms,
+			bulk_require_preview   = EXCLUDED.bulk_require_preview,
+			notify_new_duplicates  = EXCLUDED.notify_new_duplicates,
+			notify_high_risk       = EXCLUDED.notify_high_risk,
+			notify_bulk_complete   = EXCLUDED.notify_bulk_complete,
+			notify_failures        = EXCLUDED.notify_failures,
+			debug_mode             = EXCLUDED.debug_mode`
+
 	_, err := r.db.NamedExecContext(ctx, query, s)
 	if err != nil {
 		return fmt.Errorf("settings upsert: %w", err)

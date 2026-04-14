@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
+	"merger/backend/internal/middleware"
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
-	"merger/backend/internal/middleware"
 )
 
 type SettingsHandler struct {
@@ -23,31 +23,44 @@ func NewSettingsHandler(settingsRepo repository.SettingsRepository, log zerolog.
 func (h *SettingsHandler) Get(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
 
-	settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
+	s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
 	if err != nil {
-		// Return defaults if not yet configured
-		settings = &models.MerchantSettings{
-			MerchantID:           merchant.ID,
-			AutoDetect:           true,
-			ConfidenceThreshold:  75,
-			RetentionDays:        90,
-			NotificationsEnabled: true,
-		}
+		s = models.DefaultSettings(merchant.ID)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"auto_detect":           settings.AutoDetect,
-		"confidence_threshold":  settings.ConfidenceThreshold,
-		"retention_days":        settings.RetentionDays,
-		"notifications_enabled": settings.NotificationsEnabled,
-	})
+	c.JSON(http.StatusOK, settingsResponse(s))
 }
 
 type updateSettingsRequest struct {
+	// Existing
 	AutoDetect           *bool `json:"auto_detect"`
 	ConfidenceThreshold  *int  `json:"confidence_threshold"`
 	RetentionDays        *int  `json:"retention_days"`
 	NotificationsEnabled *bool `json:"notifications_enabled"`
+	// Detection
+	ScanFrequency *string `json:"scan_frequency"`
+	SignalEmail   *bool   `json:"signal_email"`
+	SignalPhone   *bool   `json:"signal_phone"`
+	SignalAddress *bool   `json:"signal_address"`
+	SignalName    *bool   `json:"signal_name"`
+	// Risk & Safety
+	RiskPolicy            *string `json:"risk_policy"`
+	RequireAnchor         *bool   `json:"require_anchor"`
+	WeakLinkProtection    *bool   `json:"weak_link_protection"`
+	BlockDifferentCountry *bool   `json:"block_different_country"`
+	BlockFraudTags        *bool   `json:"block_fraud_tags"`
+	BlockDisabledAccounts *bool   `json:"block_disabled_accounts"`
+	// Bulk Merge
+	BulkMaxBatch       *int  `json:"bulk_max_batch"`
+	BulkDelayMs        *int  `json:"bulk_delay_ms"`
+	BulkRequirePreview *bool `json:"bulk_require_preview"`
+	// Granular notifications
+	NotifyNewDuplicates *bool `json:"notify_new_duplicates"`
+	NotifyHighRisk      *bool `json:"notify_high_risk"`
+	NotifyBulkComplete  *bool `json:"notify_bulk_complete"`
+	NotifyFailures      *bool `json:"notify_failures"`
+	// Developer
+	DebugMode *bool `json:"debug_mode"`
 }
 
 func (h *SettingsHandler) Update(c *gin.Context) {
@@ -59,41 +72,120 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Load existing or use defaults
-	settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
+	s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
 	if err != nil {
-		settings = &models.MerchantSettings{
-			MerchantID:           merchant.ID,
-			AutoDetect:           true,
-			ConfidenceThreshold:  75,
-			RetentionDays:        90,
-			NotificationsEnabled: true,
-		}
+		s = models.DefaultSettings(merchant.ID)
 	}
 
+	// Apply only provided fields (nil = unchanged).
 	if req.AutoDetect != nil {
-		settings.AutoDetect = *req.AutoDetect
+		s.AutoDetect = *req.AutoDetect
 	}
 	if req.ConfidenceThreshold != nil {
 		t := *req.ConfidenceThreshold
 		if t < 0 || t > 100 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "confidence_threshold must be 0-100"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "confidence_threshold must be 0–100"})
 			return
 		}
-		settings.ConfidenceThreshold = t
+		s.ConfidenceThreshold = t
 	}
 	if req.RetentionDays != nil && *req.RetentionDays > 0 {
-		settings.RetentionDays = *req.RetentionDays
+		s.RetentionDays = *req.RetentionDays
 	}
 	if req.NotificationsEnabled != nil {
-		settings.NotificationsEnabled = *req.NotificationsEnabled
+		s.NotificationsEnabled = *req.NotificationsEnabled
+	}
+	if req.ScanFrequency != nil {
+		s.ScanFrequency = *req.ScanFrequency
+	}
+	if req.SignalEmail != nil {
+		s.SignalEmail = *req.SignalEmail
+	}
+	if req.SignalPhone != nil {
+		s.SignalPhone = *req.SignalPhone
+	}
+	if req.SignalAddress != nil {
+		s.SignalAddress = *req.SignalAddress
+	}
+	if req.SignalName != nil {
+		s.SignalName = *req.SignalName
+	}
+	if req.RiskPolicy != nil {
+		s.RiskPolicy = *req.RiskPolicy
+	}
+	if req.RequireAnchor != nil {
+		s.RequireAnchor = *req.RequireAnchor
+	}
+	if req.WeakLinkProtection != nil {
+		s.WeakLinkProtection = *req.WeakLinkProtection
+	}
+	if req.BlockDifferentCountry != nil {
+		s.BlockDifferentCountry = *req.BlockDifferentCountry
+	}
+	if req.BlockFraudTags != nil {
+		s.BlockFraudTags = *req.BlockFraudTags
+	}
+	if req.BlockDisabledAccounts != nil {
+		s.BlockDisabledAccounts = *req.BlockDisabledAccounts
+	}
+	if req.BulkMaxBatch != nil {
+		s.BulkMaxBatch = *req.BulkMaxBatch
+	}
+	if req.BulkDelayMs != nil {
+		s.BulkDelayMs = *req.BulkDelayMs
+	}
+	if req.BulkRequirePreview != nil {
+		s.BulkRequirePreview = *req.BulkRequirePreview
+	}
+	if req.NotifyNewDuplicates != nil {
+		s.NotifyNewDuplicates = *req.NotifyNewDuplicates
+	}
+	if req.NotifyHighRisk != nil {
+		s.NotifyHighRisk = *req.NotifyHighRisk
+	}
+	if req.NotifyBulkComplete != nil {
+		s.NotifyBulkComplete = *req.NotifyBulkComplete
+	}
+	if req.NotifyFailures != nil {
+		s.NotifyFailures = *req.NotifyFailures
+	}
+	if req.DebugMode != nil {
+		s.DebugMode = *req.DebugMode
 	}
 
-	if err := h.settingsRepo.Upsert(c.Request.Context(), settings); err != nil {
+	if err := h.settingsRepo.Upsert(c.Request.Context(), s); err != nil {
 		h.log.Error().Err(err).Msg("update settings")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save settings"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "settings updated"})
+	c.JSON(http.StatusOK, settingsResponse(s))
+}
+
+func settingsResponse(s *models.MerchantSettings) gin.H {
+	return gin.H{
+		"auto_detect":            s.AutoDetect,
+		"confidence_threshold":   s.ConfidenceThreshold,
+		"retention_days":         s.RetentionDays,
+		"notifications_enabled":  s.NotificationsEnabled,
+		"scan_frequency":         s.ScanFrequency,
+		"signal_email":           s.SignalEmail,
+		"signal_phone":           s.SignalPhone,
+		"signal_address":         s.SignalAddress,
+		"signal_name":            s.SignalName,
+		"risk_policy":            s.RiskPolicy,
+		"require_anchor":         s.RequireAnchor,
+		"weak_link_protection":   s.WeakLinkProtection,
+		"block_different_country": s.BlockDifferentCountry,
+		"block_fraud_tags":       s.BlockFraudTags,
+		"block_disabled_accounts": s.BlockDisabledAccounts,
+		"bulk_max_batch":         s.BulkMaxBatch,
+		"bulk_delay_ms":          s.BulkDelayMs,
+		"bulk_require_preview":   s.BulkRequirePreview,
+		"notify_new_duplicates":  s.NotifyNewDuplicates,
+		"notify_high_risk":       s.NotifyHighRisk,
+		"notify_bulk_complete":   s.NotifyBulkComplete,
+		"notify_failures":        s.NotifyFailures,
+		"debug_mode":             s.DebugMode,
+	}
 }
