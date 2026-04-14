@@ -18,11 +18,15 @@ import (
 )
 
 const (
-	// MinConfidence is the minimum score to consider a pair potentially duplicate.
-	MinConfidence = 0.25
-	// DefaultThreshold is the default cluster-formation threshold.
-	// Lowered to 0.45 so name+address matches (no email) are captured.
-	DefaultThreshold = 0.45
+	// MinConfidence is the minimum combined score to log a pair at all.
+	// With rule-based scoring, computeConfidence returns 0 or ≥ 0.65,
+	// so this acts as a safety net against future regressions.
+	MinConfidence = 0.30
+
+	// DefaultThreshold is the cluster-formation threshold.
+	// Raised from 0.45 to 0.65 to require two corroborating signals before
+	// grouping. Name alone (0.0 from rule-based engine) never reaches this.
+	DefaultThreshold = 0.65
 )
 
 type Detector struct {

@@ -29,7 +29,6 @@ func (uf *UnionFind) Union(a, b int64) {
 	if ra == rb {
 		return
 	}
-	// Union by rank
 	if uf.rank[ra] < uf.rank[rb] {
 		ra, rb = rb, ra
 	}
@@ -39,37 +38,66 @@ func (uf *UnionFind) Union(a, b int64) {
 	}
 }
 
-// ScoredPair holds a pair of customer IDs, their combined similarity score,
-// and the per-field component scores that produced it.
+// ScoredPair holds a pair of customer IDs, their combined confidence score,
+// and the per-field component scores used for the UI breakdown.
 type ScoredPair struct {
-	A, B         int64
-	Score        float64
-	EmailSim     float64
-	NameSim      float64
-	PhoneSim     float64
-	AddressSim   float64
+	A, B       int64
+	Score      float64
+	EmailSim   float64
+	NameSim    float64
+	PhoneSim   float64
+	AddressSim float64
 }
 
-// ClusterPairs groups customer IDs into duplicate clusters using union-find.
-// Only pairs with score >= threshold are joined.
+// ClusterPairs groups customer IDs into duplicate clusters using union-find,
+// with two additional guards that eliminate the classic union-find failure modes:
+//
+//  1. Threshold guard: only pairs with score ≥ threshold enter the graph.
+//
+//  2. Mutual-proximity guard: only Union(A, B) when this edge score is ≥ 90%
+//     of BOTH A's and B's personal best score. This kills weak transitive bridges:
+//     if A's real match is C (0.95) and B tries to pull A in via a 0.66 edge,
+//     the proximity check blocks it — 0.66 < 0.95 × 0.90 = 0.855.
+//
 // Returns a map of representative ID → list of all member IDs in the cluster.
 func ClusterPairs(pairs []ScoredPair, threshold float64) map[int64][]int64 {
-	uf := NewUnionFind()
-
+	// Step 1: find each node's personal best score across all pairs.
+	bestScore := make(map[int64]float64)
 	for _, p := range pairs {
-		if p.Score >= threshold {
-			uf.Union(p.A, p.B)
+		if p.Score > bestScore[p.A] {
+			bestScore[p.A] = p.Score
+		}
+		if p.Score > bestScore[p.B] {
+			bestScore[p.B] = p.Score
 		}
 	}
 
-	// Collect clusters with > 1 member
+	uf := NewUnionFind()
+
+	for _, p := range pairs {
+		// Threshold guard
+		if p.Score < threshold {
+			continue
+		}
+
+		// Mutual-proximity guard: reject weak transitive bridges.
+		// An edge is only accepted if it is a strong match for BOTH endpoints —
+		// not just good enough in absolute terms, but close to each node's best.
+		const proximityRatio = 0.90
+		if p.Score < bestScore[p.A]*proximityRatio ||
+			p.Score < bestScore[p.B]*proximityRatio {
+			continue
+		}
+
+		uf.Union(p.A, p.B)
+	}
+
+	// Collect clusters with > 1 member (singletons are not duplicates).
 	groups := make(map[int64][]int64)
 	for id := range uf.parent {
 		root := uf.Find(id)
 		groups[root] = append(groups[root], id)
 	}
-
-	// Remove singleton groups (no duplicates)
 	for root, members := range groups {
 		if len(members) <= 1 {
 			delete(groups, root)
