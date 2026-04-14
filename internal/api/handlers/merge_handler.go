@@ -14,26 +14,30 @@ import (
 	"merger/backend/internal/middleware"
 	"merger/backend/internal/services/intelligence"
 	"merger/backend/internal/services/jobs"
+	mergesvc "merger/backend/internal/services/merge"
 )
 
 type MergeHandler struct {
-	mergeRepo     repository.MergeRepository
-	duplicateRepo repository.DuplicateRepository
-	dispatcher    *jobs.Dispatcher
-	log           zerolog.Logger
+	mergeRepo         repository.MergeRepository
+	duplicateRepo     repository.DuplicateRepository
+	customerCacheRepo repository.CustomerCacheRepository
+	dispatcher        *jobs.Dispatcher
+	log               zerolog.Logger
 }
 
 func NewMergeHandler(
 	mergeRepo repository.MergeRepository,
 	duplicateRepo repository.DuplicateRepository,
+	customerCacheRepo repository.CustomerCacheRepository,
 	dispatcher *jobs.Dispatcher,
 	log zerolog.Logger,
 ) *MergeHandler {
 	return &MergeHandler{
-		mergeRepo:     mergeRepo,
-		duplicateRepo: duplicateRepo,
-		dispatcher:    dispatcher,
-		log:           log,
+		mergeRepo:         mergeRepo,
+		duplicateRepo:     duplicateRepo,
+		customerCacheRepo: customerCacheRepo,
+		dispatcher:        dispatcher,
+		log:               log,
 	}
 }
 
@@ -238,6 +242,56 @@ func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusAccepted, resp)
+}
+
+// ValidateProfile loads the customers for the given IDs, runs conflict
+// detection, and returns a split blocking/resolvable result so the frontend
+// can render the correct BLOCKED / NEEDS_RESOLUTION / READY state after each
+// Merge Composer field selection.
+func (h *MergeHandler) ValidateProfile(c *gin.Context) {
+	merchant := middleware.GetMerchant(c)
+
+	var req dto.MergeValidateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	allIDs := append([]int64{req.PrimaryCustomerID}, req.SecondaryIDs...)
+
+	customers, err := h.customerCacheRepo.FindByShopifyIDs(c.Request.Context(), merchant.ID, allIDs)
+	if err != nil {
+		h.log.Error().Err(err).Msg("validate profile: load customers")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load customer data"})
+		return
+	}
+	if len(customers) < 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "need at least 2 customers to validate"})
+		return
+	}
+
+	sel := mergesvc.FieldSelection{
+		Email:   req.Selection.Email,
+		Phone:   req.Selection.Phone,
+		Address: req.Selection.Address,
+		Name:    req.Selection.Name,
+	}
+	result := mergesvc.ValidateFinalProfile(customers, sel)
+
+	// Ensure JSON arrays are never null.
+	if result.BlockingConflicts == nil {
+		result.BlockingConflicts = []intelligence.ConflictItem{}
+	}
+	if result.ResolvableConflicts == nil {
+		result.ResolvableConflicts = []intelligence.ConflictItem{}
+	}
+
+	c.JSON(http.StatusOK, dto.MergeValidateResponse{
+		HasBlockingConflicts: result.HasBlockingConflicts,
+		BlockingConflicts:    result.BlockingConflicts,
+		ResolvableConflicts:  result.ResolvableConflicts,
+		IsReadyToMerge:      result.IsReadyToMerge,
+	})
 }
 
 // needed for uuid.Nil check in other handlers

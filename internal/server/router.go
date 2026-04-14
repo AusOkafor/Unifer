@@ -92,11 +92,13 @@ func (s *Server) registerRoutes() {
 
 	if s.h.Merge != nil {
 		api.POST("/merge/execute", s.h.Merge.Execute)
+		api.POST("/merge/validate", s.h.Merge.ValidateProfile)
 		api.GET("/merge/history", s.h.Merge.History)
 		api.GET("/merge/bulk-preview", s.h.Merge.BulkPreview)
 		api.POST("/merge/safe-bulk", s.h.Merge.SafeBulkMerge)
 	} else {
 		api.POST("/merge/execute", s.stub("merge: execute"))
+		api.POST("/merge/validate", s.stub("merge: validate"))
 		api.GET("/merge/history", s.stub("merge: history"))
 		api.GET("/merge/bulk-preview", s.stub("merge: bulk-preview"))
 		api.POST("/merge/safe-bulk", s.stub("merge: safe-bulk"))

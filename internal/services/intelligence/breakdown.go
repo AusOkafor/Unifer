@@ -17,11 +17,15 @@ type ReasonItem struct {
 }
 
 // ConflictItem describes a structural incompatibility between customer records.
-// Blocking=true means the conflict should prevent automated merging (bulk).
+// Blocking=true means the conflict prevents both bulk and manual merging.
+// Resolvable=true means the user can address it via the Merge Composer field
+// selections (e.g. pick which phone number to keep); Resolvable=false on a
+// blocking conflict means it is a hard stop regardless of user action.
 type ConflictItem struct {
-	Type     string `json:"type"`
-	Severity string `json:"severity"` // "high" | "medium" | "low"
-	Blocking bool   `json:"blocking"`
+	Type      string `json:"type"`
+	Severity  string `json:"severity"`  // "high" | "medium" | "low"
+	Blocking  bool   `json:"blocking"`
+	Resolvable bool  `json:"resolvable"`
 }
 
 // ConflictResult holds structural conflicts found in a customer cluster.
@@ -143,16 +147,15 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		}
 	}
 
-	// ── Country mismatch — strong evidence of different people ──
+	// ── Country mismatch — hard stop: different people, cannot be field-resolved ──
 	countries := uniqueFieldValues(customers, func(c models.CustomerCache) string {
 		return extractCountryFromCache(c)
 	})
 	if len(countries) > 1 {
-		add(ConflictItem{Type: "different_countries", Severity: "high", Blocking: true})
+		add(ConflictItem{Type: "different_countries", Severity: "high", Blocking: true, Resolvable: false})
 	}
 
-	// ── Last name mismatch ──
-	// Name changes happen (marriage, legal change) so this is medium, not high.
+	// ── Last name mismatch — resolvable via Merge Composer name selection ──
 	lastNames := uniqueFieldValues(customers, func(c models.CustomerCache) string {
 		parts := strings.Fields(c.Name)
 		if len(parts) == 0 {
@@ -161,35 +164,36 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		return strings.ToLower(parts[len(parts)-1])
 	})
 	if len(lastNames) > 1 {
-		add(ConflictItem{Type: "different_last_names", Severity: "medium", Blocking: false})
+		add(ConflictItem{Type: "different_last_names", Severity: "medium", Blocking: false, Resolvable: true})
 	}
 
-	// ── Disabled / blocked account ──
+	// ── Disabled / blocked account — hard stop ──
 	for _, c := range customers {
 		if strings.EqualFold(strings.TrimSpace(c.State), "disabled") {
-			add(ConflictItem{Type: "disabled_account", Severity: "high", Blocking: true})
+			add(ConflictItem{Type: "disabled_account", Severity: "high", Blocking: true, Resolvable: false})
 			break
 		}
 	}
 
-	// ── Phone country code mismatch ──
+	// ── Phone country code mismatch — resolvable by picking which phone to keep ──
 	phoneCodes := uniqueFieldValues(customers, func(c models.CustomerCache) string {
 		return extractPhoneCountryCode(utils.NormalizePhone(c.Phone))
 	})
 	if len(phoneCodes) > 1 {
-		add(ConflictItem{Type: "different_phone_country_codes", Severity: "medium", Blocking: false})
+		add(ConflictItem{Type: "different_phone_country_codes", Severity: "medium", Blocking: false, Resolvable: true})
 	}
 
-	// ── Risk / fraud tags ──
+	// ── Risk / fraud tags — hard stop: cannot be resolved by field selection ──
 	riskTags := []string{"fraud", "chargeback", "blocked", "disputed", "high_risk"}
 	for _, c := range customers {
 		for _, tag := range c.Tags {
 			for _, risk := range riskTags {
 				if strings.EqualFold(strings.TrimSpace(tag), risk) {
 					add(ConflictItem{
-						Type:     "risk_tag:" + strings.ToLower(tag),
-						Severity: "high",
-						Blocking: true,
+						Type:       "risk_tag:" + strings.ToLower(tag),
+						Severity:   "high",
+						Blocking:   true,
+						Resolvable: false,
 					})
 				}
 			}
