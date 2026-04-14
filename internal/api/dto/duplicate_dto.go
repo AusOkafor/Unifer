@@ -36,26 +36,42 @@ type SimulationDTO struct {
 	FieldConflicts      []FieldConflictDTO `json:"field_conflicts"`
 }
 
-// FieldBreakdownDTO exposes per-field similarity scores and human-readable
-// reasons for the confidence breakdown UI.
+// ReasonItemDTO is a prioritized human-readable reason for a confidence score.
+type ReasonItemDTO struct {
+	Text       string `json:"text"`
+	Importance string `json:"importance"` // "high" | "medium" | "low"
+}
+
+// ConflictItemDTO describes a structural incompatibility between customer records.
+type ConflictItemDTO struct {
+	Type     string `json:"type"`
+	Severity string `json:"severity"` // "high" | "medium" | "low"
+	Blocking bool   `json:"blocking"`
+}
+
+// FieldBreakdownDTO exposes per-field similarity scores and prioritized
+// human-readable reasons for the confidence breakdown UI.
 type FieldBreakdownDTO struct {
-	EmailScore   float64  `json:"email_score"`
-	NameScore    float64  `json:"name_score"`
-	PhoneScore   float64  `json:"phone_score"`
-	AddressScore float64  `json:"address_score"`
-	Reasons      []string `json:"reasons,omitempty"`
+	EmailScore   float64         `json:"email_score"`
+	NameScore    float64         `json:"name_score"`
+	PhoneScore   float64         `json:"phone_score"`
+	AddressScore float64         `json:"address_score"`
+	Reasons      []ReasonItemDTO `json:"reasons,omitempty"`
 }
 
 // IntelligenceDTO is the pre-merge analysis embedded in the detail response.
 type IntelligenceDTO struct {
-	RecommendedPrimary int64              `json:"recommended_primary"`
-	ReadinessScore     float64            `json:"readiness_score"`
-	Reasoning          []string           `json:"reasoning"`
-	RiskFlags          []string           `json:"risk_flags"`
-	Simulation         SimulationDTO      `json:"simulation"`
+	RecommendedPrimary int64             `json:"recommended_primary"`
+	ReadinessScore     float64           `json:"readiness_score"`
+	Reasoning          []string          `json:"reasoning"`
+	RiskFlags          []string          `json:"risk_flags"`
+	Simulation         SimulationDTO     `json:"simulation"`
 	Breakdown          *FieldBreakdownDTO `json:"breakdown,omitempty"`
-	Conflicts          []string           `json:"conflicts,omitempty"`
-	ConflictSeverity   string             `json:"conflict_severity,omitempty"`
+	Conflicts          []ConflictItemDTO `json:"conflicts,omitempty"`
+	ConflictSeverity   string            `json:"conflict_severity,omitempty"`
+	// Summary is a one-line plain-English explanation surfaced at the top of
+	// the merge review UI.
+	Summary string `json:"summary,omitempty"`
 }
 
 // DuplicateGroupResponse is the list-view representation of a duplicate group.

@@ -159,6 +159,7 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 }
 
 // Dismiss marks a duplicate group as dismissed (not a real duplicate).
+// Accepts an optional JSON body: {"reason": "different_people" | "same_person_keep_separate" | "data_error" | "other"}
 // Dismissed groups are excluded from the default list view.
 func (h *DuplicateHandler) Dismiss(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
@@ -180,7 +181,13 @@ func (h *DuplicateHandler) Dismiss(c *gin.Context) {
 		return
 	}
 
-	if err := h.duplicateRepo.UpdateStatus(c.Request.Context(), id, "dismissed"); err != nil {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	// Ignore parse errors — reason is optional.
+	_ = c.ShouldBindJSON(&body)
+
+	if err := h.duplicateRepo.DismissGroup(c.Request.Context(), id, body.Reason); err != nil {
 		h.log.Error().Err(err).Str("group_id", id.String()).Msg("dismiss group")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to dismiss group"})
 		return
@@ -216,10 +223,17 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 	if riskFlags == nil {
 		riskFlags = []string{}
 	}
-	conflicts := r.Conflicts
-	if conflicts == nil {
-		conflicts = []string{}
+
+	// Map structured conflict items.
+	conflicts := make([]dto.ConflictItemDTO, 0, len(r.Conflicts))
+	for _, ci := range r.Conflicts {
+		conflicts = append(conflicts, dto.ConflictItemDTO{
+			Type:     ci.Type,
+			Severity: ci.Severity,
+			Blocking: ci.Blocking,
+		})
 	}
+
 	idto := &dto.IntelligenceDTO{
 		RecommendedPrimary: r.RecommendedPrimary,
 		ReadinessScore:     r.ReadinessScore,
@@ -228,14 +242,23 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 		Simulation:         sim,
 		Conflicts:          conflicts,
 		ConflictSeverity:   r.ConflictSeverity,
+		Summary:            r.Summary,
 	}
+
 	if r.Breakdown != nil {
+		reasons := make([]dto.ReasonItemDTO, 0, len(r.Breakdown.Reasons))
+		for _, ri := range r.Breakdown.Reasons {
+			reasons = append(reasons, dto.ReasonItemDTO{
+				Text:       ri.Text,
+				Importance: ri.Importance,
+			})
+		}
 		idto.Breakdown = &dto.FieldBreakdownDTO{
 			EmailScore:   r.Breakdown.EmailScore,
 			NameScore:    r.Breakdown.NameScore,
 			PhoneScore:   r.Breakdown.PhoneScore,
 			AddressScore: r.Breakdown.AddressScore,
-			Reasons:      r.Breakdown.Reasons,
+			Reasons:      reasons,
 		}
 	}
 	return idto

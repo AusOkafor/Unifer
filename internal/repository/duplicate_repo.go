@@ -18,6 +18,11 @@ type DuplicateRepository interface {
 	ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	// DismissGroup sets status=dismissed and records the optional reason + timestamp.
+	DismissGroup(ctx context.Context, id uuid.UUID, reason string) error
+	// MarkConfirmedByUser sets confirmed_by_user on the group, recording whether
+	// a human manually triggered the merge (vs automated bulk).
+	MarkConfirmedByUser(ctx context.Context, id uuid.UUID, confirmed bool) error
 }
 
 type duplicateRepo struct {
@@ -147,6 +152,36 @@ func (r *duplicateRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status s
 	)
 	if err != nil {
 		return fmt.Errorf("duplicate group update status: %w", err)
+	}
+	return nil
+}
+
+func (r *duplicateRepo) DismissGroup(ctx context.Context, id uuid.UUID, reason string) error {
+	var reasonPtr *string
+	if reason != "" {
+		reasonPtr = &reason
+	}
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE duplicate_groups
+		 SET status = 'dismissed',
+		     dismissed_at = NOW(),
+		     dismiss_reason = $1
+		 WHERE id = $2`,
+		reasonPtr, id,
+	)
+	if err != nil {
+		return fmt.Errorf("duplicate group dismiss: %w", err)
+	}
+	return nil
+}
+
+func (r *duplicateRepo) MarkConfirmedByUser(ctx context.Context, id uuid.UUID, confirmed bool) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE duplicate_groups SET confirmed_by_user = $1 WHERE id = $2`,
+		confirmed, id,
+	)
+	if err != nil {
+		return fmt.Errorf("duplicate group mark confirmed: %w", err)
 	}
 	return nil
 }

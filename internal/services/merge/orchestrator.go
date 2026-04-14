@@ -3,6 +3,7 @@ package merge
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -135,10 +136,16 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 		log.Error().Err(err).Msg("merge: audit record creation failed")
 	}
 
-	// Step 6: Mark duplicate group as merged.
+	// Step 6: Mark duplicate group as merged + record learning signal.
 	if req.GroupID != uuid.Nil {
 		if err := o.duplicateRepo.UpdateStatus(ctx, req.GroupID, "merged"); err != nil {
 			log.Warn().Err(err).Str("group_id", req.GroupID.String()).Msg("merge: update group status failed")
+		}
+		// confirmed_by_user=true when a human explicitly triggered the merge
+		// (i.e. not a bulk/automated job). Bulk jobs set PerformedBy to include "(bulk)".
+		isManual := !strings.Contains(req.PerformedBy, "(bulk)")
+		if err := o.duplicateRepo.MarkConfirmedByUser(ctx, req.GroupID, isManual); err != nil {
+			log.Warn().Err(err).Str("group_id", req.GroupID.String()).Msg("merge: mark confirmed_by_user failed")
 		}
 	}
 

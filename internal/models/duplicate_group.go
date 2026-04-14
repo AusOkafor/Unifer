@@ -14,13 +14,20 @@ type DuplicateGroup struct {
 	GroupHash        string          `db:"group_hash"`
 	CustomerIDs      pq.Int64Array   `db:"customer_ids"`
 	ConfidenceScore  float64         `db:"confidence_score"`
-	Status           string          `db:"status"`   // pending | reviewed | merged
+	Status           string          `db:"status"`   // pending | reviewed | merged | dismissed
 	RiskLevel        *string         `db:"risk_level"` // safe | review | risky
 	ReadinessScore   *float64        `db:"readiness_score"`
 	IntelligenceJSON json.RawMessage `db:"intelligence_json"`
 	CreatedAt        time.Time       `db:"created_at"`
 	// MergedAt is set when status transitions to "merged".
-	// It is a learning signal: at this confidence + breakdown, a human confirmed
-	// these accounts were the same person. Used for future scoring calibration.
-	MergedAt         *time.Time      `db:"merged_at"`
+	// Learning signal: at this confidence + breakdown, a human confirmed these
+	// accounts were the same person. Used for future scoring calibration.
+	MergedAt *time.Time `db:"merged_at"`
+	// DismissedAt is set when the group is dismissed as not a duplicate.
+	// Together with DismissReason it forms the negative feedback loop.
+	DismissedAt   *time.Time `db:"dismissed_at"`
+	DismissReason *string    `db:"dismiss_reason"`
+	// ConfirmedByUser is true when a human manually triggered the merge
+	// (as opposed to an automated bulk merge). A stronger learning signal.
+	ConfirmedByUser bool `db:"confirmed_by_user"`
 }

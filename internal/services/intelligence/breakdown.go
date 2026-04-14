@@ -2,87 +2,144 @@ package intelligence
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/utils"
 )
 
-// GenerateBreakdownReasons converts per-field similarity scores (0–1) into
-// human-readable explanations for the confidence breakdown UI.
-// Only non-obvious signals are included — zero scores on optional fields
-// (phone, address) are omitted so the UI stays clean.
-func GenerateBreakdownReasons(emailSim, nameSim, phoneSim, addrSim float64) []string {
-	var reasons []string
+// ReasonItem is a prioritized human-readable explanation for a confidence score.
+// Importance drives how the UI renders the reason (colour, weight, order).
+type ReasonItem struct {
+	Text       string `json:"text"`
+	Importance string `json:"importance"` // "high" | "medium" | "low"
+}
 
-	// Name
+// ConflictItem describes a structural incompatibility between customer records.
+// Blocking=true means the conflict should prevent automated merging (bulk).
+type ConflictItem struct {
+	Type     string `json:"type"`
+	Severity string `json:"severity"` // "high" | "medium" | "low"
+	Blocking bool   `json:"blocking"`
+}
+
+// ConflictResult holds structural conflicts found in a customer cluster.
+type ConflictResult struct {
+	Conflicts []ConflictItem
+	// Severity is the highest severity across all conflicts: "high", "medium", "low", or "".
+	Severity string
+}
+
+// GenerateBreakdownReasons converts per-field similarity scores (0–1) into
+// prioritized human-readable explanations for the confidence breakdown UI.
+func GenerateBreakdownReasons(emailSim, nameSim, phoneSim, addrSim float64) []ReasonItem {
+	var reasons []ReasonItem
+
+	// Name — high importance when decisive
 	switch {
 	case nameSim >= 0.97:
-		reasons = append(reasons, "Exact name match")
+		reasons = append(reasons, ReasonItem{Text: "Exact name match", Importance: "high"})
 	case nameSim >= 0.82:
-		reasons = append(reasons, "Strong name match")
+		reasons = append(reasons, ReasonItem{Text: "Strong name match", Importance: "high"})
 	case nameSim >= 0.60:
-		reasons = append(reasons, "Partial name match")
+		reasons = append(reasons, ReasonItem{Text: "Partial name match", Importance: "medium"})
 	default:
-		reasons = append(reasons, "Names differ significantly")
+		reasons = append(reasons, ReasonItem{Text: "Names differ significantly", Importance: "high"})
 	}
 
 	// Email
 	switch {
 	case emailSim >= 0.99:
-		reasons = append(reasons, "Identical email addresses")
+		reasons = append(reasons, ReasonItem{Text: "Identical email addresses", Importance: "high"})
 	case emailSim >= 0.50:
-		reasons = append(reasons, "Same email domain")
+		reasons = append(reasons, ReasonItem{Text: "Same email domain", Importance: "medium"})
 	case emailSim > 0.10:
-		reasons = append(reasons, "Similar email addresses")
+		reasons = append(reasons, ReasonItem{Text: "Similar email addresses", Importance: "medium"})
 	default:
-		reasons = append(reasons, "Different email domains")
+		reasons = append(reasons, ReasonItem{Text: "Different email domains", Importance: "medium"})
 	}
 
 	// Phone — only mention when there is data
 	if phoneSim >= 0.99 {
-		reasons = append(reasons, "Identical phone numbers")
+		reasons = append(reasons, ReasonItem{Text: "Identical phone numbers", Importance: "high"})
 	} else if phoneSim >= 0.75 {
-		reasons = append(reasons, "Similar phone numbers")
+		reasons = append(reasons, ReasonItem{Text: "Similar phone numbers", Importance: "medium"})
 	} else if phoneSim > 0 {
-		reasons = append(reasons, "Partial phone match")
+		reasons = append(reasons, ReasonItem{Text: "Partial phone match", Importance: "low"})
 	}
 
 	// Address — only mention when there is data
 	if addrSim >= 0.95 {
-		reasons = append(reasons, "Same shipping address")
+		reasons = append(reasons, ReasonItem{Text: "Same shipping address", Importance: "high"})
 	} else if addrSim >= 0.70 {
-		reasons = append(reasons, "Similar shipping address")
+		reasons = append(reasons, ReasonItem{Text: "Similar shipping address", Importance: "medium"})
 	} else if addrSim > 0 {
-		reasons = append(reasons, "Partial address match")
+		reasons = append(reasons, ReasonItem{Text: "Partial address match", Importance: "low"})
 	}
 
 	return reasons
 }
 
-// ConflictResult holds structural conflicts found in a customer cluster.
-type ConflictResult struct {
-	Conflicts []string
-	// Severity is "high", "medium", "low", or "" (no conflicts).
-	Severity string
+// GenerateSummary produces a one-line explanation of the confidence score
+// suitable for surfacing at the top of the merge review UI.
+func GenerateSummary(reasons []ReasonItem, conflicts []ConflictItem, confidence float64) string {
+	// Collect the most important positive signals.
+	var highReasons []string
+	for _, r := range reasons {
+		if r.Importance == "high" && !strings.Contains(strings.ToLower(r.Text), "differ") &&
+			!strings.Contains(strings.ToLower(r.Text), "different") {
+			highReasons = append(highReasons, strings.ToLower(r.Text))
+		}
+	}
+
+	hasBlockingConflict := false
+	for _, c := range conflicts {
+		if c.Blocking {
+			hasBlockingConflict = true
+			break
+		}
+	}
+
+	switch {
+	case hasBlockingConflict:
+		return "Accounts share some identifying data but have blocking conflicts — manual review required before merging."
+	case confidence >= 0.90 && len(highReasons) >= 2:
+		return fmt.Sprintf("Very likely the same customer based on %s and %s.", highReasons[0], highReasons[1])
+	case confidence >= 0.90 && len(highReasons) == 1:
+		return fmt.Sprintf("Very likely the same customer based on %s.", highReasons[0])
+	case confidence >= 0.75 && len(highReasons) >= 1:
+		return fmt.Sprintf("Likely the same customer based on %s, though some fields differ — verify before merging.", highReasons[0])
+	case confidence >= 0.50:
+		return "Possible duplicate — some fields match, but not enough to be certain. Review carefully."
+	default:
+		return "Low confidence match — these may be different customers. Proceed with caution."
+	}
 }
 
 // DetectConflicts inspects raw field values across all customers in the cluster
 // for structural conflicts that should override or inform risk classification.
-//
-// Unlike similarity scores (which measure resemblance), conflicts measure
-// real incompatibilities — things that cannot both be true of the same person.
 func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 	if len(customers) < 2 {
 		return ConflictResult{}
 	}
 
-	var conflicts []string
+	var conflicts []ConflictItem
 	maxSev := 0 // 1=low 2=medium 3=high
 
-	bump := func(level int) {
-		if level > maxSev {
-			maxSev = level
+	add := func(item ConflictItem) {
+		conflicts = append(conflicts, item)
+		sev := 0
+		switch item.Severity {
+		case "high":
+			sev = 3
+		case "medium":
+			sev = 2
+		case "low":
+			sev = 1
+		}
+		if sev > maxSev {
+			maxSev = sev
 		}
 	}
 
@@ -91,8 +148,7 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		return extractCountryFromCache(c)
 	})
 	if len(countries) > 1 {
-		conflicts = append(conflicts, "different_countries")
-		bump(3)
+		add(ConflictItem{Type: "different_countries", Severity: "high", Blocking: true})
 	}
 
 	// ── Last name mismatch ──
@@ -105,15 +161,13 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		return strings.ToLower(parts[len(parts)-1])
 	})
 	if len(lastNames) > 1 {
-		conflicts = append(conflicts, "different_last_names")
-		bump(2)
+		add(ConflictItem{Type: "different_last_names", Severity: "medium", Blocking: false})
 	}
 
 	// ── Disabled / blocked account ──
 	for _, c := range customers {
 		if strings.EqualFold(strings.TrimSpace(c.State), "disabled") {
-			conflicts = append(conflicts, "disabled_account")
-			bump(3)
+			add(ConflictItem{Type: "disabled_account", Severity: "high", Blocking: true})
 			break
 		}
 	}
@@ -123,8 +177,7 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		return extractPhoneCountryCode(utils.NormalizePhone(c.Phone))
 	})
 	if len(phoneCodes) > 1 {
-		conflicts = append(conflicts, "different_phone_country_codes")
-		bump(2)
+		add(ConflictItem{Type: "different_phone_country_codes", Severity: "medium", Blocking: false})
 	}
 
 	// ── Risk / fraud tags ──
@@ -133,8 +186,11 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		for _, tag := range c.Tags {
 			for _, risk := range riskTags {
 				if strings.EqualFold(strings.TrimSpace(tag), risk) {
-					conflicts = append(conflicts, "risk_tag:"+strings.ToLower(tag))
-					bump(3)
+					add(ConflictItem{
+						Type:     "risk_tag:" + strings.ToLower(tag),
+						Severity: "high",
+						Blocking: true,
+					})
 				}
 			}
 		}
@@ -188,7 +244,6 @@ func extractPhoneCountryCode(normalized string) string {
 	if !strings.HasPrefix(normalized, "+") {
 		return ""
 	}
-	// Use up to 3 digits after "+" — sufficient to distinguish countries.
 	digits := strings.TrimPrefix(normalized, "+")
 	if len(digits) == 0 {
 		return ""

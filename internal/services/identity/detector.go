@@ -127,6 +127,13 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 				report.ConflictSeverity = cr.Severity
 				conflictSeverity = cr.Severity
 
+				// One-line confidence summary for the UI.
+				var breakdownReasons []intelligence.ReasonItem
+				if report.Breakdown != nil {
+					breakdownReasons = report.Breakdown.Reasons
+				}
+				report.Summary = intelligence.GenerateSummary(breakdownReasons, cr.Conflicts, maxScore)
+
 				if raw, err2 := report.ToRawJSON(); err2 == nil {
 					intelJSON = raw
 					readinessScore = &report.ReadinessScore
