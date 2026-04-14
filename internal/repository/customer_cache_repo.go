@@ -15,6 +15,9 @@ type CustomerCacheRepository interface {
 	Upsert(ctx context.Context, c *models.CustomerCache) error
 	FindByMerchant(ctx context.Context, merchantID uuid.UUID) ([]models.CustomerCache, error)
 	FindByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) (*models.CustomerCache, error)
+	// FindByShopifyIDs fetches name+email+phone for a set of Shopify IDs in one query.
+	// Used to enrich the duplicate list without N individual lookups.
+	FindByShopifyIDs(ctx context.Context, merchantID uuid.UUID, shopifyIDs []int64) ([]models.CustomerCache, error)
 	DeleteByShopifyID(ctx context.Context, merchantID uuid.UUID, shopifyID int64) error
 	// UpdateOrderStats patches the orders_count and total_spent fields from an
 	// order webhook without overwriting unrelated fields. No-op if the customer
@@ -89,6 +92,25 @@ func (r *customerCacheRepo) FindByShopifyID(ctx context.Context, merchantID uuid
 		return nil, fmt.Errorf("customer cache find by shopify id: %w", err)
 	}
 	return &c, nil
+}
+
+func (r *customerCacheRepo) FindByShopifyIDs(ctx context.Context, merchantID uuid.UUID, shopifyIDs []int64) ([]models.CustomerCache, error) {
+	if len(shopifyIDs) == 0 {
+		return nil, nil
+	}
+	var customers []models.CustomerCache
+	err := r.db.SelectContext(ctx, &customers,
+		`SELECT shopify_customer_id, name, email, phone, tags, orders_count, total_spent,
+		        address_json, note, state, verified_email, shopify_created_at, updated_at,
+		        id, merchant_id
+		 FROM customer_cache
+		 WHERE merchant_id = $1 AND shopify_customer_id = ANY($2)`,
+		merchantID, pq.Array(shopifyIDs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("customer cache find by shopify ids: %w", err)
+	}
+	return customers, nil
 }
 
 func (r *customerCacheRepo) UpdateOrderStats(ctx context.Context, merchantID uuid.UUID, shopifyID int64, ordersCount int, totalSpent string) error {

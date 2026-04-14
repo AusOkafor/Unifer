@@ -74,15 +74,23 @@ type IntelligenceDTO struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// CustomerSummaryDTO is a lightweight customer identity for list-view display.
+type CustomerSummaryDTO struct {
+	ShopifyCustomerID int64  `json:"shopify_customer_id"`
+	Name              string `json:"name"`
+	Email             string `json:"email"`
+}
+
 // DuplicateGroupResponse is the list-view representation of a duplicate group.
 type DuplicateGroupResponse struct {
-	ID             string    `json:"id"`
-	Confidence     float64   `json:"confidence"`
-	RiskLevel      *string   `json:"risk_level,omitempty"` // safe | review | risky
-	ReadinessScore *float64  `json:"readiness_score,omitempty"`
-	Status         string    `json:"status"`
-	CustomerIDs    []int64   `json:"customer_ids"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string               `json:"id"`
+	Confidence       float64              `json:"confidence"`
+	RiskLevel        *string              `json:"risk_level,omitempty"` // safe | review | risky
+	ReadinessScore   *float64             `json:"readiness_score,omitempty"`
+	Status           string               `json:"status"`
+	CustomerIDs      []int64              `json:"customer_ids"`
+	CustomerSummaries []CustomerSummaryDTO `json:"customer_summaries,omitempty"`
+	CreatedAt        time.Time            `json:"created_at"`
 }
 
 // DuplicateGroupDetailResponse is returned by GET /api/duplicates/:id.
@@ -100,10 +108,3 @@ type PaginatedDuplicates struct {
 	Offset int                      `json:"offset"`
 }
 
-// CustomerSummary is kept for any legacy internal use.
-type CustomerSummary struct {
-	ShopifyID int64  `json:"shopify_id"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-}

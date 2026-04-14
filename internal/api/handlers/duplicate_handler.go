@@ -65,16 +65,48 @@ func (h *DuplicateHandler) List(c *gin.Context) {
 		return
 	}
 
+	// Collect all unique customer IDs across every group in this page so we can
+	// enrich the list with names+emails in a single DB query instead of N queries.
+	allShopifyIDs := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	for _, g := range groups {
+		for _, id := range g.CustomerIDs {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				allShopifyIDs = append(allShopifyIDs, id)
+			}
+		}
+	}
+	summaryMap := make(map[int64]dto.CustomerSummaryDTO)
+	if h.customerCacheRepo != nil && len(allShopifyIDs) > 0 {
+		if cached, err2 := h.customerCacheRepo.FindByShopifyIDs(c.Request.Context(), merchant.ID, allShopifyIDs); err2 == nil {
+			for _, cc := range cached {
+				summaryMap[cc.ShopifyCustomerID] = dto.CustomerSummaryDTO{
+					ShopifyCustomerID: cc.ShopifyCustomerID,
+					Name:              cc.Name,
+					Email:             cc.Email,
+				}
+			}
+		}
+	}
+
 	items := make([]dto.DuplicateGroupResponse, len(groups))
 	for i, g := range groups {
+		summaries := make([]dto.CustomerSummaryDTO, 0, len(g.CustomerIDs))
+		for _, id := range g.CustomerIDs {
+			if s, ok := summaryMap[id]; ok {
+				summaries = append(summaries, s)
+			}
+		}
 		items[i] = dto.DuplicateGroupResponse{
-			ID:             g.ID.String(),
-			Confidence:     g.ConfidenceScore,
-			RiskLevel:      g.RiskLevel,
-			ReadinessScore: g.ReadinessScore,
-			Status:         g.Status,
-			CustomerIDs:    []int64(g.CustomerIDs),
-			CreatedAt:      g.CreatedAt,
+			ID:                g.ID.String(),
+			Confidence:        g.ConfidenceScore,
+			RiskLevel:         g.RiskLevel,
+			ReadinessScore:    g.ReadinessScore,
+			Status:            g.Status,
+			CustomerIDs:       []int64(g.CustomerIDs),
+			CustomerSummaries: summaries,
+			CreatedAt:         g.CreatedAt,
 		}
 	}
 
