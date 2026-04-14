@@ -119,6 +119,38 @@ func ClusterPairs(pairs []ScoredPair, threshold float64) map[int64][]int64 {
 	return groups
 }
 
+// ClusterDensity returns the ratio of actual scored pairs to the maximum
+// possible pairs for a cluster of n members: density = actual / (n*(n-1)/2).
+//
+// A fully-corroborated cluster (every member directly matched every other)
+// has density = 1.0. A star topology where all evidence routes through one
+// hub node has density = 2/(n-1), which falls rapidly as n grows.
+//
+// Clusters with density < 0.60 are held together primarily by transitive
+// bridges rather than direct corroboration — higher false-positive risk.
+//
+// 2-member clusters always return 1.0; they are either directly linked or absent.
+func ClusterDensity(pairs []ScoredPair, memberIDs []int64) float64 {
+	n := len(memberIDs)
+	if n <= 2 {
+		return 1.0
+	}
+	possible := float64(n * (n - 1) / 2)
+
+	memberSet := make(map[int64]bool, n)
+	for _, id := range memberIDs {
+		memberSet[id] = true
+	}
+
+	actual := 0
+	for _, p := range pairs {
+		if memberSet[p.A] && memberSet[p.B] {
+			actual++
+		}
+	}
+	return float64(actual) / possible
+}
+
 // WeakestClusterEdge finds the lowest score among all scored pairs whose
 // both endpoints belong to the given cluster. Returns 1.0 if the cluster
 // has only one member or no edges are found (conservative: no penalty applied).

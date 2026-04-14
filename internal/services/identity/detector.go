@@ -148,10 +148,27 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			}
 		}
 
-		// Risk classification: high-severity conflicts override confidence thresholds.
-		// weakestEdge is also passed so clusters with borderline interior links
-		// are capped at "review" even when the top pair looks strong.
-		riskLevel := classifyRisk(maxScore, conflictSeverity, weakestEdge)
+		density := ClusterDensity(pairs, memberIDs)
+		hasAnchor := clusterHasAnchor(members)
+
+		// Pairwise conflict spread: iterate every member pair explicitly.
+		// intelligence.DetectConflicts(members) already covers this via field
+		// aggregation, but the pairwise pass guarantees correctness for any
+		// future conflict type that requires comparing two specific customers
+		// (e.g. A has US, C has UK, B has no country — aggregate catches it,
+		// but pairwise makes the guarantee explicit and easier to audit).
+		pairwiseSev := pairwiseConflictSeverity(members)
+		if sevRank(pairwiseSev) > sevRank(conflictSeverity) {
+			conflictSeverity = pairwiseSev
+		}
+
+		riskLevel := classifyRisk(riskInput{
+			confidence:       maxScore,
+			conflictSeverity: conflictSeverity,
+			weakestEdge:      weakestEdge,
+			density:          density,
+			hasAnchor:        hasAnchor,
+		})
 
 		g := &models.DuplicateGroup{
 			MerchantID:       merchantID,
@@ -394,45 +411,116 @@ func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 	return top
 }
 
-// classifyRisk maps a confidence score to a risk level string.
+// riskInput bundles all factors used to classify a cluster's risk level.
+// Using a struct keeps classifyRisk's signature stable as new factors are added.
+type riskInput struct {
+	confidence       float64
+	conflictSeverity string // from intelligence.DetectConflicts + pairwise spread
+	weakestEdge      float64
+	density          float64
+	hasAnchor        bool
+}
+
+// classifyRisk maps cluster evidence to a risk level string.
 //
-// Priority order (highest to lowest):
-//  1. conflictSeverity from DetectConflicts — structural conflicts override
-//     confidence: "high" → risky, "medium" → caps at review.
-//  2. weakestEdge — a borderline interior link (< 0.70) in the cluster means
-//     the cluster may span unrelated people; cap at "review" regardless of the
-//     top-pair confidence.
-//  3. Confidence thresholds — used when no overrides apply.
-func classifyRisk(confidence float64, conflictSeverity string, weakestEdge float64) string {
-	switch conflictSeverity {
+// Priority order (highest override first):
+//  1. Structural conflicts — different countries, disabled accounts, risk tags
+//  2. Weak interior edge  — borderline link may span unrelated people
+//  3. Sparse cluster      — transitive bridge topology, not direct corroboration
+//  4. No identity anchor  — all ghost-like or newly-created records
+//  5. Confidence thresholds — clean cluster, pure signal quality
+func classifyRisk(in riskInput) string {
+	// 1. Structural conflicts override everything.
+	switch in.conflictSeverity {
 	case "high":
 		return "risky"
 	case "medium":
-		// Cannot be "safe" even if confidence is high.
-		if confidence >= 0.90 {
+		if in.confidence >= 0.90 {
 			return "review"
 		}
 		return "risky"
 	}
 
-	// Weak interior link — cluster may include an unrelated person.
+	// 2. Weak interior edge — cluster may include an unrelated person.
 	const weakEdgeFloor = 0.70
-	if weakestEdge < weakEdgeFloor {
-		// Can still be risky if confidence is also low.
-		if confidence >= 0.75 {
+	if in.weakestEdge < weakEdgeFloor {
+		if in.confidence >= 0.75 {
 			return "review"
 		}
 		return "risky"
 	}
 
-	// No structural conflicts, strong edges — use confidence thresholds.
+	// 3. Sparse cluster — evidence routes through a hub rather than direct links.
+	// Exception: if both confidence and weakest edge are very strong, downgrade
+	// only to "review" (not "risky") — the topology is atypical but evidence is solid.
+	const minDensity = 0.60
+	if in.density < minDensity {
+		if in.confidence >= 0.90 && in.weakestEdge >= 0.85 {
+			return "review"
+		}
+		if in.confidence >= 0.75 {
+			return "review"
+		}
+		return "risky"
+	}
+
+	// 4. No strong anchor — cluster consists entirely of ghost-like records.
+	if !in.hasAnchor {
+		if in.confidence >= 0.90 {
+			return "review"
+		}
+		return "risky"
+	}
+
+	// 5. Clean cluster — use confidence thresholds.
 	switch {
-	case confidence >= 0.90:
+	case in.confidence >= 0.90:
 		return "safe"
-	case confidence >= 0.75:
+	case in.confidence >= 0.75:
 		return "review"
 	default:
 		return "risky"
+	}
+}
+
+// pairwiseConflictSeverity returns the highest conflict severity found across
+// all pairwise combinations of cluster members. This makes the "conflict spread"
+// guarantee explicit: if A vs C has a high-severity conflict, the cluster is
+// risky even if neither A→B nor B→C showed any conflict individually.
+//
+// For clusters of 2, this is equivalent to calling DetectConflicts directly.
+// For larger clusters, short-circuits on the first "high" result.
+func pairwiseConflictSeverity(members []models.CustomerCache) string {
+	if len(members) <= 2 {
+		return intelligence.DetectConflicts(members).Severity
+	}
+	maxSev := ""
+	for i := 0; i < len(members); i++ {
+		for j := i + 1; j < len(members); j++ {
+			pair := []models.CustomerCache{members[i], members[j]}
+			s := intelligence.DetectConflicts(pair).Severity
+			if sevRank(s) > sevRank(maxSev) {
+				maxSev = s
+				if maxSev == "high" {
+					return "high" // short-circuit — can't get worse
+				}
+			}
+		}
+	}
+	return maxSev
+}
+
+// sevRank maps a severity string to an integer for comparison.
+func sevRank(s string) int {
+	switch s {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
 	}
 }
 
