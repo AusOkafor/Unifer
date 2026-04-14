@@ -30,4 +30,14 @@ type DuplicateGroup struct {
 	// ConfirmedByUser is true when a human manually triggered the merge
 	// (as opposed to an automated bulk merge). A stronger learning signal.
 	ConfirmedByUser bool `db:"confirmed_by_user"`
+
+	// BusinessRiskLevel is the commercial risk of merging this cluster,
+	// independent of identity confidence: "high" | "medium" | "low" | nil.
+	// Set at detection time based on spend disparity, order count delta, age gap.
+	BusinessRiskLevel *string `db:"business_risk_level"`
+
+	// ImpactScore = cluster_size × avg_customer_value. Used as a blast-radius
+	// guardrail: high-value clusters require manual confirmation even when
+	// identity confidence is strong.
+	ImpactScore *float64 `db:"impact_score"`
 }

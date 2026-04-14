@@ -83,14 +83,19 @@ type CustomerSummaryDTO struct {
 
 // DuplicateGroupResponse is the list-view representation of a duplicate group.
 type DuplicateGroupResponse struct {
-	ID               string               `json:"id"`
-	Confidence       float64              `json:"confidence"`
-	RiskLevel        *string              `json:"risk_level,omitempty"` // safe | review | risky
-	ReadinessScore   *float64             `json:"readiness_score,omitempty"`
-	Status           string               `json:"status"`
-	CustomerIDs      []int64              `json:"customer_ids"`
+	ID                string               `json:"id"`
+	Confidence        float64              `json:"confidence"`
+	RiskLevel         *string              `json:"risk_level,omitempty"`          // safe | review | risky
+	ReadinessScore    *float64             `json:"readiness_score,omitempty"`
+	Status            string               `json:"status"`
+	CustomerIDs       []int64              `json:"customer_ids"`
 	CustomerSummaries []CustomerSummaryDTO `json:"customer_summaries,omitempty"`
-	CreatedAt        time.Time            `json:"created_at"`
+	CreatedAt         time.Time            `json:"created_at"`
+	// BusinessRiskLevel is the commercial risk of this merge (independent of
+	// identity confidence): "high" | "medium" | "low". Nil means no data.
+	BusinessRiskLevel *string  `json:"business_risk_level,omitempty"`
+	// ImpactScore = cluster_size × avg_customer_value (blast-radius metric).
+	ImpactScore       *float64 `json:"impact_score,omitempty"`
 }
 
 // DuplicateGroupDetailResponse is returned by GET /api/duplicates/:id.

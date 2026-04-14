@@ -150,6 +150,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 
 		density := ClusterDensity(pairs, memberIDs)
 		hasAnchor := clusterHasAnchor(members)
+		br := ComputeBusinessRisk(members)
 
 		// Pairwise conflict spread: iterate every member pair explicitly.
 		// intelligence.DetectConflicts(members) already covers this via field
@@ -168,17 +169,25 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			weakestEdge:      weakestEdge,
 			density:          density,
 			hasAnchor:        hasAnchor,
+			businessRisk:     br.Level,
+			impactScore:      br.ImpactScore,
 		})
 
+		var businessRiskLevel *string
+		if br.Level != "" {
+			businessRiskLevel = &br.Level
+		}
 		g := &models.DuplicateGroup{
-			MerchantID:       merchantID,
-			GroupHash:        hash,
-			CustomerIDs:      int64SliceToPQ(memberIDs),
-			ConfidenceScore:  maxScore,
-			Status:           "pending",
-			RiskLevel:        &riskLevel,
-			ReadinessScore:   readinessScore,
-			IntelligenceJSON: intelJSON,
+			MerchantID:        merchantID,
+			GroupHash:         hash,
+			CustomerIDs:       int64SliceToPQ(memberIDs),
+			ConfidenceScore:   maxScore,
+			Status:            "pending",
+			RiskLevel:         &riskLevel,
+			ReadinessScore:    readinessScore,
+			IntelligenceJSON:  intelJSON,
+			BusinessRiskLevel: businessRiskLevel,
+			ImpactScore:       &br.ImpactScore,
 		}
 
 		if err := d.duplicateRepo.CreateGroup(ctx, g); err != nil {
@@ -415,20 +424,24 @@ func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 // Using a struct keeps classifyRisk's signature stable as new factors are added.
 type riskInput struct {
 	confidence       float64
-	conflictSeverity string // from intelligence.DetectConflicts + pairwise spread
+	conflictSeverity string  // from intelligence.DetectConflicts + pairwise spread
 	weakestEdge      float64
 	density          float64
 	hasAnchor        bool
+	businessRisk     string  // from ComputeBusinessRisk: "high"|"medium"|"low"|""
+	impactScore      float64 // blast-radius: cluster_size × avg_customer_value
 }
 
 // classifyRisk maps cluster evidence to a risk level string.
 //
-// Priority order (highest override first):
+// Priority chain (highest override first):
 //  1. Structural conflicts — different countries, disabled accounts, risk tags
-//  2. Weak interior edge  — borderline link may span unrelated people
-//  3. Sparse cluster      — transitive bridge topology, not direct corroboration
-//  4. No identity anchor  — all ghost-like or newly-created records
-//  5. Confidence thresholds — clean cluster, pure signal quality
+//  2. Business risk        — high-value accounts with stark history disparity
+//  3. Blast radius         — combined value ≥ $1,000 forces manual review
+//  4. Weak interior edge   — borderline link may span unrelated people
+//  5. Sparse cluster       — transitive bridge topology, not direct corroboration
+//  6. No identity anchor   — all ghost-like or newly-created records
+//  7. Confidence thresholds — clean cluster, pure signal quality
 func classifyRisk(in riskInput) string {
 	// 1. Structural conflicts override everything.
 	switch in.conflictSeverity {
@@ -441,7 +454,25 @@ func classifyRisk(in riskInput) string {
 		return "risky"
 	}
 
-	// 2. Weak interior edge — cluster may include an unrelated person.
+	// 2. Business risk: high commercial stakes warrant a human eye.
+	if in.businessRisk == "high" {
+		if in.confidence >= 0.90 {
+			return "review"
+		}
+		return "risky"
+	}
+	if in.businessRisk == "medium" && in.confidence >= 0.90 {
+		return "review" // cap "safe" at "review" for medium business risk
+	}
+
+	// 3. Blast-radius guardrail: never auto-merge when the combined value at
+	// stake exceeds the threshold, regardless of how clean identity signals look.
+	const highImpactFloor = 1000.0
+	if in.impactScore >= highImpactFloor && in.confidence >= 0.90 {
+		return "review"
+	}
+
+	// 4. Weak interior edge — cluster may include an unrelated person.
 	const weakEdgeFloor = 0.70
 	if in.weakestEdge < weakEdgeFloor {
 		if in.confidence >= 0.75 {
@@ -450,9 +481,7 @@ func classifyRisk(in riskInput) string {
 		return "risky"
 	}
 
-	// 3. Sparse cluster — evidence routes through a hub rather than direct links.
-	// Exception: if both confidence and weakest edge are very strong, downgrade
-	// only to "review" (not "risky") — the topology is atypical but evidence is solid.
+	// 5. Sparse cluster — evidence routes through a hub rather than direct links.
 	const minDensity = 0.60
 	if in.density < minDensity {
 		if in.confidence >= 0.90 && in.weakestEdge >= 0.85 {
@@ -464,7 +493,7 @@ func classifyRisk(in riskInput) string {
 		return "risky"
 	}
 
-	// 4. No strong anchor — cluster consists entirely of ghost-like records.
+	// 6. No strong anchor — cluster consists entirely of ghost-like records.
 	if !in.hasAnchor {
 		if in.confidence >= 0.90 {
 			return "review"
@@ -472,7 +501,7 @@ func classifyRisk(in riskInput) string {
 		return "risky"
 	}
 
-	// 5. Clean cluster — use confidence thresholds.
+	// 7. Clean cluster — use confidence thresholds.
 	switch {
 	case in.confidence >= 0.90:
 		return "safe"

@@ -107,6 +107,8 @@ func (h *DuplicateHandler) List(c *gin.Context) {
 			CustomerIDs:       []int64(g.CustomerIDs),
 			CustomerSummaries: summaries,
 			CreatedAt:         g.CreatedAt,
+			BusinessRiskLevel: g.BusinessRiskLevel,
+			ImpactScore:       g.ImpactScore,
 		}
 	}
 
@@ -140,13 +142,15 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 
 	resp := dto.DuplicateGroupDetailResponse{
 		DuplicateGroupResponse: dto.DuplicateGroupResponse{
-			ID:             group.ID.String(),
-			Confidence:     group.ConfidenceScore,
-			RiskLevel:      group.RiskLevel,
-			ReadinessScore: group.ReadinessScore,
-			Status:         group.Status,
-			CustomerIDs:    []int64(group.CustomerIDs),
-			CreatedAt:      group.CreatedAt,
+			ID:                group.ID.String(),
+			Confidence:        group.ConfidenceScore,
+			RiskLevel:         group.RiskLevel,
+			ReadinessScore:    group.ReadinessScore,
+			Status:            group.Status,
+			CustomerIDs:       []int64(group.CustomerIDs),
+			CreatedAt:         group.CreatedAt,
+			BusinessRiskLevel: group.BusinessRiskLevel,
+			ImpactScore:       group.ImpactScore,
 		},
 	}
 
