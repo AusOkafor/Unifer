@@ -557,12 +557,12 @@ func jaroWinkler(a, b string) float64 {
 
 // ── Behavioral signal helpers ──────────────────────────────────────────────
 
-func parseOrderAddresses(raw json.RawMessage) []models.OrderAddress {
-	if len(raw) == 0 {
+func parseOrderAddresses(raw *json.RawMessage) []models.OrderAddress {
+	if raw == nil || len(*raw) == 0 {
 		return nil
 	}
 	var addrs []models.OrderAddress
-	if err := json.Unmarshal(raw, &addrs); err != nil {
+	if err := json.Unmarshal(*raw, &addrs); err != nil {
 		return nil
 	}
 	return addrs

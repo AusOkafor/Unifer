@@ -113,12 +113,13 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 	return len(customers), nil
 }
 
-func marshalOrderAddresses(addrs []models.OrderAddress) json.RawMessage {
+func marshalOrderAddresses(addrs []models.OrderAddress) *json.RawMessage {
 	if len(addrs) == 0 {
 		return nil
 	}
 	b, _ := json.Marshal(addrs)
-	return b
+	raw := json.RawMessage(b)
+	return &raw
 }
 
 func buildAddressJSON(sc shopifysvc.ShopifyCustomer) json.RawMessage {

@@ -240,11 +240,11 @@ func uniqueFieldValues(customers []models.CustomerCache, fn func(models.Customer
 func orderCountryMismatch(members []models.CustomerCache) bool {
 	countries := make(map[string]struct{})
 	for _, m := range members {
-		if len(m.OrderAddresses) == 0 {
+		if m.OrderAddresses == nil || len(*m.OrderAddresses) == 0 {
 			continue
 		}
 		var addrs []models.OrderAddress
-		if err := json.Unmarshal(m.OrderAddresses, &addrs); err != nil {
+		if err := json.Unmarshal(*m.OrderAddresses, &addrs); err != nil {
 			continue
 		}
 		for _, a := range addrs {
