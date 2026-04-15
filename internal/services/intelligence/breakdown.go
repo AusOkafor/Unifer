@@ -183,6 +183,11 @@ func DetectConflicts(customers []models.CustomerCache) ConflictResult {
 		add(ConflictItem{Type: "different_phone_country_codes", Severity: "medium", Blocking: false, Resolvable: true})
 	}
 
+	// ── Order country mismatch — non-blocking when there is a hard identity anchor ──
+	if orderCountryMismatch(customers) && !hasExactIdentityAnchor(customers) {
+		add(ConflictItem{Type: "order_country_mismatch", Severity: "high", Blocking: false, Resolvable: false})
+	}
+
 	// ── Risk / fraud tags — hard stop: cannot be resolved by field selection ──
 	riskTags := []string{"fraud", "chargeback", "blocked", "disputed", "high_risk"}
 	for _, c := range customers {
@@ -228,6 +233,43 @@ func uniqueFieldValues(customers []models.CustomerCache, fn func(models.Customer
 		}
 	}
 	return out
+}
+
+// orderCountryMismatch returns true when order addresses across the cluster span
+// multiple countries — a signal that these may be different people.
+func orderCountryMismatch(members []models.CustomerCache) bool {
+	countries := make(map[string]struct{})
+	for _, m := range members {
+		if len(m.OrderAddresses) == 0 {
+			continue
+		}
+		var addrs []models.OrderAddress
+		if err := json.Unmarshal(m.OrderAddresses, &addrs); err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if a.Country != "" {
+				countries[strings.ToUpper(a.Country)] = struct{}{}
+			}
+		}
+	}
+	return len(countries) > 1
+}
+
+// hasExactIdentityAnchor returns true when any two members share an exact email
+// or phone match. Used to suppress geographic conflicts for strong identity matches.
+func hasExactIdentityAnchor(members []models.CustomerCache) bool {
+	for i := 0; i < len(members); i++ {
+		for j := i + 1; j < len(members); j++ {
+			if members[i].Email != "" && strings.EqualFold(members[i].Email, members[j].Email) {
+				return true
+			}
+			if members[i].Phone != "" && members[i].Phone == members[j].Phone {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // extractCountryFromCache parses the country field from the customer's address JSON.

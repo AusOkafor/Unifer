@@ -6,24 +6,30 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"merger/backend/internal/models"
 )
 
 // ShopifyCustomer represents the Shopify customer resource.
 type ShopifyCustomer struct {
-	ID            int64     `json:"id"`
-	Email         string    `json:"email"`
-	FirstName     string    `json:"first_name"`
-	LastName      string    `json:"last_name"`
-	Phone         string    `json:"phone"`
-	Tags          string    `json:"tags"`
-	Note          string    `json:"note"`
-	State         string    `json:"state"`
-	VerifiedEmail bool      `json:"verified_email"`
-	Addresses     []Address `json:"addresses"`
-	OrdersCount   int       `json:"orders_count"`
-	TotalSpent    string    `json:"total_spent"`
-	CreatedAt     string    `json:"created_at"`
-	UpdatedAt     string    `json:"updated_at"`
+	ID             int64                `json:"id"`
+	Email          string               `json:"email"`
+	FirstName      string               `json:"first_name"`
+	LastName       string               `json:"last_name"`
+	Phone          string               `json:"phone"`
+	Tags           string               `json:"tags"`
+	Note           string               `json:"note"`
+	State          string               `json:"state"`
+	VerifiedEmail  bool                 `json:"verified_email"`
+	Addresses      []Address            `json:"addresses"`
+	OrdersCount    int                  `json:"orders_count"`
+	TotalSpent     string               `json:"total_spent"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
+	LastOrderAt    *time.Time
+	OrderAddresses []models.OrderAddress
+	OrderNames     []string
 }
 
 type Address struct {
@@ -75,14 +81,24 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 						createdAt
 						numberOfOrders
 						amountSpent { amount }
-						defaultAddress {
-							address1
-							city
-							province
-							zip
-							country
+					defaultAddress {
+						address1
+						city
+						province
+						zip
+						country
+					}
+					orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+						edges {
+							node {
+								createdAt
+								name
+								shippingAddress { address1 city zip countryCode }
+								billingAddress  { address1 city zip countryCode }
+							}
 						}
 					}
+				}
 				}
 				pageInfo {
 					hasNextPage
@@ -97,6 +113,18 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 		Province string `json:"province"`
 		Zip      string `json:"zip"`
 		Country  string `json:"country"`
+	}
+	type gqlOrderAddr struct {
+		Address1    string `json:"address1"`
+		City        string `json:"city"`
+		Zip         string `json:"zip"`
+		CountryCode string `json:"countryCode"`
+	}
+	type gqlOrderNode struct {
+		CreatedAt       string        `json:"createdAt"`
+		Name            string        `json:"name"`
+		ShippingAddress *gqlOrderAddr `json:"shippingAddress"`
+		BillingAddress  *gqlOrderAddr `json:"billingAddress"`
 	}
 	type gqlCustomer struct {
 		LegacyResourceID string     `json:"legacyResourceId"`
@@ -114,6 +142,11 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 			Amount string `json:"amount"`
 		} `json:"amountSpent"`
 		DefaultAddress *gqlAddress `json:"defaultAddress"`
+		Orders         struct {
+			Edges []struct {
+				Node gqlOrderNode `json:"node"`
+			} `json:"edges"`
+		} `json:"orders"`
 	}
 	type gqlResponse struct {
 		Customers struct {
@@ -168,6 +201,25 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 					Zip:      n.DefaultAddress.Zip,
 					Country:  n.DefaultAddress.Country,
 				}}
+			}
+			for _, oe := range n.Orders.Edges {
+				o := oe.Node
+				if t, err := time.Parse(time.RFC3339, o.CreatedAt); err == nil {
+					if sc.LastOrderAt == nil || t.After(*sc.LastOrderAt) {
+						sc.LastOrderAt = &t
+					}
+				}
+				if o.Name != "" {
+					sc.OrderNames = append(sc.OrderNames, o.Name)
+				}
+				for _, addr := range []*gqlOrderAddr{o.ShippingAddress, o.BillingAddress} {
+					if addr != nil && addr.City != "" {
+						sc.OrderAddresses = append(sc.OrderAddresses, models.OrderAddress{
+							Street: addr.Address1, City: addr.City,
+							Zip: addr.Zip, Country: addr.CountryCode,
+						})
+					}
+				}
 			}
 			all = append(all, sc)
 		}

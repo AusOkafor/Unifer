@@ -45,7 +45,7 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 			block_different_country, block_fraud_tags, block_disabled_accounts,
 			bulk_max_batch, bulk_delay_ms, bulk_require_preview,
 			notify_new_duplicates, notify_high_risk, notify_bulk_complete, notify_failures,
-			debug_mode
+			debug_mode, enable_behavioral_signals
 		) VALUES (
 			:merchant_id, :auto_detect, :confidence_threshold, :retention_days,
 			:notifications_enabled,
@@ -54,7 +54,7 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 			:block_different_country, :block_fraud_tags, :block_disabled_accounts,
 			:bulk_max_batch, :bulk_delay_ms, :bulk_require_preview,
 			:notify_new_duplicates, :notify_high_risk, :notify_bulk_complete, :notify_failures,
-			:debug_mode
+			:debug_mode, :enable_behavioral_signals
 		)
 		ON CONFLICT (merchant_id) DO UPDATE SET
 			auto_detect            = EXCLUDED.auto_detect,
@@ -79,7 +79,8 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 			notify_high_risk       = EXCLUDED.notify_high_risk,
 			notify_bulk_complete   = EXCLUDED.notify_bulk_complete,
 			notify_failures        = EXCLUDED.notify_failures,
-			debug_mode             = EXCLUDED.debug_mode`
+			debug_mode             = EXCLUDED.debug_mode,
+			enable_behavioral_signals = EXCLUDED.enable_behavioral_signals`
 
 	_, err := r.db.NamedExecContext(ctx, query, s)
 	if err != nil {

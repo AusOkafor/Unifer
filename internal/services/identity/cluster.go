@@ -41,12 +41,27 @@ func (uf *UnionFind) Union(a, b int64) {
 // ScoredPair holds a pair of customer IDs, their combined confidence score,
 // and the per-field component scores used for the UI breakdown.
 type ScoredPair struct {
-	A, B       int64
-	Score      float64
-	EmailSim   float64
-	NameSim    float64
-	PhoneSim   float64
-	AddressSim float64
+	A, B             int64
+	Score            float64
+	EmailSim         float64
+	NameSim          float64
+	PhoneSim         float64
+	AddressSim       float64
+	ConfidenceSource string // "behavioral" | "profile" | "mixed"
+	Sig              Signals
+}
+
+// hasStrongSignal returns true when the pair has at least one hard identity
+// anchor. Pairs without a strong signal are excluded from clustering to prevent
+// weak transitive bridges from forming false-positive groups.
+func hasStrongSignal(s Signals) bool {
+	return s.EmailExact ||
+		s.PhoneExact ||
+		s.OrderAddressExact ||
+		s.AddressExact ||
+		(s.OrderAddressPartial && s.NameHigh) ||
+		(s.EmailLocalExact && s.NameHigh) ||
+		(s.PhoneSuffix && s.NameHigh)
 }
 
 // ClusterPairs groups customer IDs into duplicate clusters using union-find,
@@ -79,6 +94,11 @@ func ClusterPairs(pairs []ScoredPair, threshold float64) map[int64][]int64 {
 	uf := NewUnionFind()
 
 	for _, p := range pairs {
+		// Strong-signal guard: require at least one hard identity anchor.
+		if !hasStrongSignal(p.Sig) {
+			continue
+		}
+
 		// Threshold guard
 		if p.Score < threshold {
 			continue

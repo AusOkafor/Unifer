@@ -10,10 +10,18 @@ import (
 	"merger/backend/internal/models"
 )
 
+// ConfidenceSourceCounts holds aggregate merge counts broken down by confidence source.
+type ConfidenceSourceCounts struct {
+	Behavioral int `db:"behavioral" json:"behavioral"`
+	Profile    int `db:"profile" json:"profile"`
+	Mixed      int `db:"mixed" json:"mixed"`
+}
+
 type MergeRepository interface {
 	Create(ctx context.Context, r *models.MergeRecord) error
 	ListByMerchant(ctx context.Context, merchantID uuid.UUID, limit, offset int) ([]models.MergeRecord, int, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.MergeRecord, error)
+	CountByConfidenceSource(ctx context.Context, merchantID uuid.UUID) (*ConfidenceSourceCounts, error)
 }
 
 type mergeRepo struct {
@@ -27,9 +35,9 @@ func NewMergeRepo(db *sqlx.DB) MergeRepository {
 func (r *mergeRepo) Create(ctx context.Context, rec *models.MergeRecord) error {
 	query := `
 		INSERT INTO merge_records
-			(merchant_id, primary_customer_id, secondary_customer_ids, orders_moved, performed_by, snapshot_id)
+			(merchant_id, primary_customer_id, secondary_customer_ids, orders_moved, performed_by, snapshot_id, confidence_source)
 		VALUES
-			(:merchant_id, :primary_customer_id, :secondary_customer_ids, :orders_moved, :performed_by, :snapshot_id)
+			(:merchant_id, :primary_customer_id, :secondary_customer_ids, :orders_moved, :performed_by, :snapshot_id, :confidence_source)
 		RETURNING id, created_at`
 	rows, err := r.db.NamedQueryContext(ctx, query, rec)
 	if err != nil {
@@ -69,4 +77,21 @@ func (r *mergeRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.MergeRe
 		return nil, fmt.Errorf("merge record find: %w", err)
 	}
 	return &rec, nil
+}
+
+func (r *mergeRepo) CountByConfidenceSource(ctx context.Context, merchantID uuid.UUID) (*ConfidenceSourceCounts, error) {
+	var counts ConfidenceSourceCounts
+	err := r.db.GetContext(ctx, &counts, `
+		SELECT
+			COUNT(*) FILTER (WHERE confidence_source = 'behavioral') AS behavioral,
+			COUNT(*) FILTER (WHERE confidence_source = 'profile')    AS profile,
+			COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed
+		FROM merge_records
+		WHERE merchant_id = $1`,
+		merchantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("merge count by confidence source: %w", err)
+	}
+	return &counts, nil
 }

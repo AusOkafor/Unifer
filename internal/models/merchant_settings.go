@@ -37,6 +37,9 @@ type MerchantSettings struct {
 
 	// Developer
 	DebugMode bool `db:"debug_mode"`
+
+	// Behavioral signals
+	EnableBehavioralSignals bool `db:"enable_behavioral_signals"`
 }
 
 func DefaultSettings(merchantID uuid.UUID) *MerchantSettings {

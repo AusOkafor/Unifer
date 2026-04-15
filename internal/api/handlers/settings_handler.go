@@ -61,6 +61,8 @@ type updateSettingsRequest struct {
 	NotifyFailures      *bool `json:"notify_failures"`
 	// Developer
 	DebugMode *bool `json:"debug_mode"`
+	// Behavioral signals
+	EnableBehavioralSignals *bool `json:"enable_behavioral_signals"`
 }
 
 func (h *SettingsHandler) Update(c *gin.Context) {
@@ -152,6 +154,9 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 	if req.DebugMode != nil {
 		s.DebugMode = *req.DebugMode
 	}
+	if req.EnableBehavioralSignals != nil {
+		s.EnableBehavioralSignals = *req.EnableBehavioralSignals
+	}
 
 	if err := h.settingsRepo.Upsert(c.Request.Context(), s); err != nil {
 		h.log.Error().Err(err).Msg("update settings")
@@ -186,6 +191,7 @@ func settingsResponse(s *models.MerchantSettings) gin.H {
 		"notify_high_risk":       s.NotifyHighRisk,
 		"notify_bulk_complete":   s.NotifyBulkComplete,
 		"notify_failures":        s.NotifyFailures,
-		"debug_mode":             s.DebugMode,
+		"debug_mode":                s.DebugMode,
+		"enable_behavioral_signals": s.EnableBehavioralSignals,
 	}
 }

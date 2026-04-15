@@ -8,6 +8,13 @@ import (
 	"github.com/lib/pq"
 )
 
+type OrderAddress struct {
+	Street  string `json:"street"`
+	City    string `json:"city"`
+	Zip     string `json:"zip"`
+	Country string `json:"country"`
+}
+
 type CustomerCache struct {
 	ID                uuid.UUID       `db:"id"`
 	MerchantID        uuid.UUID       `db:"merchant_id"`
@@ -23,5 +30,8 @@ type CustomerCache struct {
 	State             string          `db:"state"`
 	VerifiedEmail     bool            `db:"verified_email"`
 	ShopifyCreatedAt  *time.Time      `db:"shopify_created_at"`
+	LastOrderAt       *time.Time      `db:"last_order_at"`
+	OrderAddresses    json.RawMessage `db:"order_addresses"`
+	OrderNames        pq.StringArray  `db:"order_names"`
 	UpdatedAt         time.Time       `db:"updated_at"`
 }

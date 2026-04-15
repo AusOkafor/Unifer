@@ -44,9 +44,20 @@ type ReasonItemDTO struct {
 
 // ConflictItemDTO describes a structural incompatibility between customer records.
 type ConflictItemDTO struct {
-	Type     string `json:"type"`
-	Severity string `json:"severity"` // "high" | "medium" | "low"
-	Blocking bool   `json:"blocking"`
+	Type       string `json:"type"`
+	Severity   string `json:"severity"` // "high" | "medium" | "low"
+	Blocking   bool   `json:"blocking"`
+	Resolvable bool   `json:"resolvable"`
+}
+
+// BehavioralSignalsDTO surfaces order-derived identity signals in the API.
+type BehavioralSignalsDTO struct {
+	OrderAddressExact    bool `json:"order_address_exact"`
+	OrderAddressPartial  bool `json:"order_address_partial"`
+	OrderNameHigh        bool `json:"order_name_high"`
+	RecentOrderOverlap   bool `json:"recent_order_overlap"`
+	OrderNameConflict    bool `json:"order_name_conflict"`
+	OrderAddressConflict bool `json:"order_address_conflict"`
 }
 
 // FieldBreakdownDTO exposes per-field similarity scores and prioritized
@@ -71,7 +82,10 @@ type IntelligenceDTO struct {
 	ConflictSeverity   string            `json:"conflict_severity,omitempty"`
 	// Summary is a one-line plain-English explanation surfaced at the top of
 	// the merge review UI.
-	Summary string `json:"summary,omitempty"`
+	Summary            string                `json:"summary,omitempty"`
+	BehavioralSignals  *BehavioralSignalsDTO `json:"behavioral_signals,omitempty"`
+	// ConfidenceSource: "behavioral" | "profile" | "mixed" — tells the UI what drove the score.
+	ConfidenceSource   string                `json:"confidence_source,omitempty"`
 }
 
 // CustomerSummaryDTO is a lightweight customer identity for list-view display.

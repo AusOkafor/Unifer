@@ -10,6 +10,7 @@ import (
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	"merger/backend/internal/services/intelligence"
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
 	"merger/backend/internal/utils"
@@ -122,6 +123,16 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	// Step 4b: Post-merge validation — non-blocking, best-effort.
 	o.validatePostMerge(ctx, result.ResultingCustomerGID, expectedMinOrders, customerSvc, log)
 
+	// Determine confidence source from the group's intelligence report (if available).
+	confidenceSource := ""
+	if req.GroupID != uuid.Nil {
+		if group, err := o.duplicateRepo.FindByID(ctx, req.GroupID); err == nil && len(group.IntelligenceJSON) > 0 {
+			if report, err := intelligence.FromRawJSON(group.IntelligenceJSON); err == nil {
+				confidenceSource = report.ConfidenceSource
+			}
+		}
+	}
+
 	// Step 5: Audit record.
 	mergeRecord := &models.MergeRecord{
 		MerchantID:           req.MerchantID,
@@ -130,6 +141,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 		OrdersMoved:          0,
 		PerformedBy:          req.PerformedBy,
 		SnapshotID:           &snap.ID,
+		ConfidenceSource:     confidenceSource,
 	}
 
 	if err := o.mergeRepo.Create(ctx, mergeRecord); err != nil {

@@ -101,7 +101,7 @@ func main() {
 		customerCacheRepo, merchantRepo, encryptor, log,
 	)
 	analyzer := intelligence.NewAnalyzer()
-	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, analyzer, log)
+	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, settingsRepo, analyzer, log)
 	syncService := syncsvc.NewService(merchantRepo, customerCacheRepo, encryptor, log)
 	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, log)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)

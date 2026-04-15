@@ -23,6 +23,17 @@ type FieldBreakdown struct {
 	Reasons      []ReasonItem `json:"reasons,omitempty"`
 }
 
+// BehavioralSignals holds order-derived identity signals for a duplicate group.
+// Populated by the detector from the top-scoring pair's signal flags.
+type BehavioralSignals struct {
+	OrderAddressExact   bool `json:"order_address_exact"`
+	OrderAddressPartial bool `json:"order_address_partial"`
+	OrderNameHigh       bool `json:"order_name_high"`
+	RecentOrderOverlap  bool `json:"recent_order_overlap"`
+	OrderNameConflict    bool `json:"order_name_conflict"`
+	OrderAddressConflict bool `json:"order_address_conflict"`
+}
+
 // IntelligenceReport is the full pre-merge analysis stored against a duplicate group.
 type IntelligenceReport struct {
 	RecommendedPrimary int64          `json:"recommended_primary"`
@@ -39,8 +50,12 @@ type IntelligenceReport struct {
 	ConflictSeverity string         `json:"conflict_severity,omitempty"`
 	// Summary is a one-line plain-English explanation of the overall confidence,
 	// e.g. "Likely the same customer based on matching name and address."
-	Summary    string    `json:"summary,omitempty"`
-	ComputedAt time.Time `json:"computed_at"`
+	Summary            string             `json:"summary,omitempty"`
+	BehavioralSignals  *BehavioralSignals `json:"behavioral_signals,omitempty"`
+	// ConfidenceSource indicates what drove the confidence score:
+	// "behavioral" (order-derived), "profile" (traditional), or "mixed" (both).
+	ConfidenceSource   string             `json:"confidence_source,omitempty"`
+	ComputedAt         time.Time          `json:"computed_at"`
 }
 
 // ToRawJSON marshals the report to bytes suitable for JSONB storage.

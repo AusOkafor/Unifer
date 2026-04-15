@@ -41,10 +41,12 @@ func (r *customerCacheRepo) Upsert(ctx context.Context, c *models.CustomerCache)
 	query := `
 		INSERT INTO customer_cache
 			(merchant_id, shopify_customer_id, email, name, phone, address_json, tags,
-			 orders_count, total_spent, note, state, verified_email, shopify_created_at, updated_at)
+			 orders_count, total_spent, note, state, verified_email, shopify_created_at,
+			 last_order_at, order_addresses, order_names, updated_at)
 		VALUES
 			(:merchant_id, :shopify_customer_id, :email, :name, :phone, :address_json, :tags,
-			 :orders_count, :total_spent, :note, :state, :verified_email, :shopify_created_at, NOW())
+			 :orders_count, :total_spent, :note, :state, :verified_email, :shopify_created_at,
+			 :last_order_at, :order_addresses, :order_names, NOW())
 		ON CONFLICT (merchant_id, shopify_customer_id) DO UPDATE SET
 			email              = EXCLUDED.email,
 			name               = EXCLUDED.name,
@@ -57,6 +59,9 @@ func (r *customerCacheRepo) Upsert(ctx context.Context, c *models.CustomerCache)
 			state              = EXCLUDED.state,
 			verified_email     = EXCLUDED.verified_email,
 			shopify_created_at = COALESCE(EXCLUDED.shopify_created_at, customer_cache.shopify_created_at),
+			last_order_at      = EXCLUDED.last_order_at,
+			order_addresses    = EXCLUDED.order_addresses,
+			order_names        = EXCLUDED.order_names,
 			updated_at         = NOW()
 		RETURNING id, updated_at`
 	rows, err := r.db.NamedQueryContext(ctx, query, c)

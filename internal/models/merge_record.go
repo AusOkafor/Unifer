@@ -15,5 +15,6 @@ type MergeRecord struct {
 	OrdersMoved          int           `db:"orders_moved"`
 	PerformedBy          string        `db:"performed_by"`
 	SnapshotID           *uuid.UUID    `db:"snapshot_id"`
+	ConfidenceSource     string        `db:"confidence_source"`
 	CreatedAt            time.Time     `db:"created_at"`
 }

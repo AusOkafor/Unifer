@@ -32,6 +32,7 @@ const (
 type Detector struct {
 	customerCacheRepo repository.CustomerCacheRepository
 	duplicateRepo     repository.DuplicateRepository
+	settingsRepo      repository.SettingsRepository
 	analyzer          *intelligence.Analyzer // may be nil — analysis is skipped if so
 	log               zerolog.Logger
 }
@@ -39,12 +40,14 @@ type Detector struct {
 func NewDetector(
 	customerCacheRepo repository.CustomerCacheRepository,
 	duplicateRepo repository.DuplicateRepository,
+	settingsRepo repository.SettingsRepository,
 	analyzer *intelligence.Analyzer,
 	log zerolog.Logger,
 ) *Detector {
 	return &Detector{
 		customerCacheRepo: customerCacheRepo,
 		duplicateRepo:     duplicateRepo,
+		settingsRepo:      settingsRepo,
 		analyzer:          analyzer,
 		log:               log,
 	}
@@ -64,6 +67,15 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 	}
 
 	d.log.Info().Int("count", len(customers)).Str("merchant", merchantID.String()).Msg("running detection")
+
+	// Load merchant's behavioral signals flag.
+	behavioralEnabled := false
+	if d.settingsRepo != nil {
+		if settings, err := d.settingsRepo.Get(ctx, merchantID); err == nil {
+			behavioralEnabled = settings.EnableBehavioralSignals
+		}
+	}
+	d.log.Info().Bool("behavioral_enabled", behavioralEnabled).Msg("detection: behavioral signals")
 
 	// Clear stale pending groups before rebuilding — ensures merged/deleted
 	// customers don't produce ghost groups on re-scan.
@@ -86,7 +98,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		customers[i].Phone = utils.NormalizePhone(customers[i].Phone)
 	}
 
-	pairs := d.scorePairs(customers)
+	pairs := d.scorePairs(customers, behavioralEnabled)
 	clusters := ClusterPairs(pairs, DefaultThreshold)
 
 	persisted := 0
@@ -126,8 +138,21 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 					}
 				}
 
-				// Structural conflict detection — can override risk level.
-				cr := intelligence.DetectConflicts(members)
+			// Populate behavioral signals and confidence source from the top pair.
+			if topPair != nil {
+				report.BehavioralSignals = &intelligence.BehavioralSignals{
+					OrderAddressExact:    topPair.Sig.OrderAddressExact,
+					OrderAddressPartial:  topPair.Sig.OrderAddressPartial,
+					OrderNameHigh:        topPair.Sig.OrderNameHigh,
+					RecentOrderOverlap:   topPair.Sig.RecentOrderOverlap,
+					OrderNameConflict:    topPair.Sig.OrderNameConflict,
+					OrderAddressConflict: topPair.Sig.OrderAddressConflict,
+				}
+				report.ConfidenceSource = topPair.ConfidenceSource
+			}
+
+			// Structural conflict detection — can override risk level.
+			cr := intelligence.DetectConflicts(members)
 				report.Conflicts = cr.Conflicts
 				report.ConflictSeverity = cr.Severity
 				conflictSeverity = cr.Severity
@@ -207,7 +232,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 //  3. Address hash bucketing (city+zip combination)
 //
 // A seen map deduplicates pairs found by multiple buckets.
-func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
+func (d *Detector) scorePairs(customers []models.CustomerCache, behavioralEnabled bool) []ScoredPair {
 	seen := make(map[[2]int64]struct{})
 	var pairs []ScoredPair
 
@@ -221,7 +246,7 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 			return
 		}
 		seen[key] = struct{}{}
-		s := ScorePair(a, b)
+		s := ScorePair(a, b, behavioralEnabled)
 		d.log.Debug().
 			Int64("a", a.ShopifyCustomerID).
 			Int64("b", b.ShopifyCustomerID).
@@ -232,7 +257,6 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 			Float64("phone", s.PhoneSim).
 			Float64("addr", s.AddressSim).
 			Float64("combined", s.Combined).
-			// Signal flags for debugging scoring decisions
 			Bool("sig.emailExact", s.Sig.EmailExact).
 			Bool("sig.emailLocalExact", s.Sig.EmailLocalExact).
 			Bool("sig.emailLocalFuzzy", s.Sig.EmailLocalFuzzy).
@@ -243,19 +267,28 @@ func (d *Detector) scorePairs(customers []models.CustomerCache) []ScoredPair {
 			Bool("sig.nameMedium", s.Sig.NameMedium).
 			Bool("sig.addressExact", s.Sig.AddressExact).
 			Bool("sig.addressPartial", s.Sig.AddressPartial).
+			Bool("sig.orderAddrExact", s.Sig.OrderAddressExact).
+			Bool("sig.orderAddrPartial", s.Sig.OrderAddressPartial).
+			Bool("sig.orderNameHigh", s.Sig.OrderNameHigh).
+			Bool("sig.recentOrderOverlap", s.Sig.RecentOrderOverlap).
 			Bool("sig.diffLastName", s.Sig.DifferentLastName).
 			Bool("sig.diffEmailDomain", s.Sig.DifferentEmailDomain).
 			Bool("sig.phoneAsymmetry", s.Sig.PhoneAsymmetry).
+			Bool("sig.orderNameConflict", s.Sig.OrderNameConflict).
+			Bool("sig.orderAddrConflict", s.Sig.OrderAddressConflict).
+			Str("confidenceSource", s.ConfidenceSource).
 			Msg("bucket pair score")
 		if s.Combined >= MinConfidence {
 			pairs = append(pairs, ScoredPair{
-				A:          a.ShopifyCustomerID,
-				B:          b.ShopifyCustomerID,
-				Score:      s.Combined,
-				EmailSim:   s.EmailSim,
-				NameSim:    s.NameSim,
-				PhoneSim:   s.PhoneSim,
-				AddressSim: s.AddressSim,
+				A:                a.ShopifyCustomerID,
+				B:                b.ShopifyCustomerID,
+				Score:            s.Combined,
+				EmailSim:         s.EmailSim,
+				NameSim:          s.NameSim,
+				PhoneSim:         s.PhoneSim,
+				AddressSim:       s.AddressSim,
+				ConfidenceSource: s.ConfidenceSource,
+				Sig:              s.Sig,
 			})
 		}
 	}

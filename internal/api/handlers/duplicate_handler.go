@@ -264,9 +264,10 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 	conflicts := make([]dto.ConflictItemDTO, 0, len(r.Conflicts))
 	for _, ci := range r.Conflicts {
 		conflicts = append(conflicts, dto.ConflictItemDTO{
-			Type:     ci.Type,
-			Severity: ci.Severity,
-			Blocking: ci.Blocking,
+			Type:       ci.Type,
+			Severity:   ci.Severity,
+			Blocking:   ci.Blocking,
+			Resolvable: ci.Resolvable,
 		})
 	}
 
@@ -279,6 +280,7 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 		Conflicts:          conflicts,
 		ConflictSeverity:   r.ConflictSeverity,
 		Summary:            r.Summary,
+		ConfidenceSource:   r.ConfidenceSource,
 	}
 
 	if r.Breakdown != nil {
@@ -297,5 +299,17 @@ func buildIntelligenceDTO(r *intelligence.IntelligenceReport) *dto.IntelligenceD
 			Reasons:      reasons,
 		}
 	}
+
+	if r.BehavioralSignals != nil {
+		idto.BehavioralSignals = &dto.BehavioralSignalsDTO{
+			OrderAddressExact:    r.BehavioralSignals.OrderAddressExact,
+			OrderAddressPartial:  r.BehavioralSignals.OrderAddressPartial,
+			OrderNameHigh:        r.BehavioralSignals.OrderNameHigh,
+			RecentOrderOverlap:   r.BehavioralSignals.RecentOrderOverlap,
+			OrderNameConflict:    r.BehavioralSignals.OrderNameConflict,
+			OrderAddressConflict: r.BehavioralSignals.OrderAddressConflict,
+		}
+	}
+
 	return idto
 }

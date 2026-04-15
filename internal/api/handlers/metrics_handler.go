@@ -59,6 +59,12 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
 	ctx := c.Request.Context()
 
+	type mergeSourceBreakdown struct {
+		Behavioral int `json:"behavioral" db:"behavioral"`
+		Profile    int `json:"profile"    db:"profile"`
+		Mixed      int `json:"mixed"      db:"mixed"`
+	}
+
 	var (
 		totalCustomers      int
 		pendingGroups       int
@@ -73,6 +79,7 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 		dataQuality         dataQualityMetrics
 		recentActivity      []activityItem
 		actionItems         []actionItem
+		mergeSourceCounts   mergeSourceBreakdown
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -203,6 +210,16 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 		`, merchant.ID)
 	})
 
+	g.Go(func() error {
+		return h.db.GetContext(gCtx, &mergeSourceCounts, `
+			SELECT
+				COUNT(*) FILTER (WHERE confidence_source = 'behavioral') AS behavioral,
+				COUNT(*) FILTER (WHERE confidence_source = 'profile')    AS profile,
+				COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed
+			FROM merge_records
+			WHERE merchant_id = $1`, merchant.ID)
+	})
+
 	if err := g.Wait(); err != nil {
 		h.log.Error().Err(err).Msg("dashboard metrics query")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metrics"})
@@ -248,6 +265,8 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 		"new_groups_last_7_days": newGroupsLast7Days,
 		// Action center
 		"action_items": actionItems,
+		// Merge source breakdown
+		"merge_source_counts": mergeSourceCounts,
 	})
 }
 

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/utils"
@@ -14,12 +17,13 @@ import (
 // breakdown chart. Combined is the rule-based confidence (not a weighted average).
 // Sig is carried through for structured observability logging.
 type Score struct {
-	EmailSim   float64
-	NameSim    float64
-	PhoneSim   float64
-	AddressSim float64
-	Combined   float64
-	Sig        Signals // for structured debug logging
+	EmailSim         float64
+	NameSim          float64
+	PhoneSim         float64
+	AddressSim       float64
+	Combined         float64
+	ConfidenceSource string  // "behavioral" | "profile" | "mixed"
+	Sig              Signals
 }
 
 // Signals holds discrete binary identity signals extracted from a customer pair.
@@ -55,16 +59,27 @@ type Signals struct {
 	// ── Blocker ───────────────────────────────────────────────────────────────
 	SameCountry bool // false only when BOTH customers have country data that differs
 
+	// ── Behavioral (order-derived) signals ───────────────────────────────────
+	OrderAddressExact   bool // any order address city+zip+country match exactly
+	OrderAddressPartial bool // any order address levenshteinSim ≥ 0.85
+	OrderNameHigh       bool // any order name Jaro-Winkler ≥ 0.92
+	RecentOrderOverlap  bool // both customers ordered within 7 days of each other
+
 	// ── Penalty signals ───────────────────────────────────────────────────────
 	DifferentLastName    bool // last-name tokens differ (marriage, alias, different person)
 	DifferentEmailDomain bool // both have email, domains differ, no local-part match
 	PhoneAsymmetry       bool // one customer has a phone number, the other does not
+
+	// ── Negative behavioral signals ──────────────────────────────────────────
+	OrderNameConflict    bool // order names on each side that clearly differ (JW ≤ 0.70)
+	OrderAddressConflict bool // order addresses from different countries
 }
 
 // ScorePair computes a pairwise Score between two cached customers.
 // Per-field sims are continuous values for the UI breakdown.
 // Combined is produced by the rule-based confidence engine.
-func ScorePair(a, b *models.CustomerCache) Score {
+// behavioralEnabled gates order-derived early-return rules.
+func ScorePair(a, b *models.CustomerCache, behavioralEnabled bool) Score {
 	s := Score{}
 
 	emailA := utils.NormalizeEmail(a.Email)
@@ -89,7 +104,7 @@ func ScorePair(a, b *models.CustomerCache) Score {
 
 	// Extract discrete signals, then compute rule-based confidence.
 	s.Sig = extractSignals(emailA, emailB, phoneA, phoneB, nameA, nameB, s.NameSim, s.AddressSim, a, b)
-	s.Combined = computeConfidence(s.Sig, s.EmailSim, s.NameSim, s.PhoneSim, s.AddressSim)
+	s.Combined, s.ConfidenceSource = computeConfidence(s.Sig, s.EmailSim, s.NameSim, s.PhoneSim, s.AddressSim, behavioralEnabled)
 
 	return s
 }
@@ -168,6 +183,32 @@ func extractSignals(
 	s.AddressExact = addrSim >= 0.99
 	s.AddressPartial = addrSim >= 0.65
 
+	// Behavioral (order-derived) signals
+	orderAddrsA := parseOrderAddresses(a.OrderAddresses)
+	orderAddrsB := parseOrderAddresses(b.OrderAddresses)
+	if len(orderAddrsA) > 0 && len(orderAddrsB) > 0 {
+		s.OrderAddressExact = anyExactOrderAddressMatch(orderAddrsA, orderAddrsB)
+		s.OrderAddressPartial = anyPartialOrderAddressMatch(orderAddrsA, orderAddrsB)
+	}
+	if len(a.OrderNames) > 0 && len(b.OrderNames) > 0 {
+		s.OrderNameHigh = anyHighOrderNameMatch(a.OrderNames, b.OrderNames)
+	}
+	if a.LastOrderAt != nil && b.LastOrderAt != nil {
+		diff := a.LastOrderAt.Sub(*b.LastOrderAt)
+		if diff < 0 {
+			diff = -diff
+		}
+		s.RecentOrderOverlap = diff <= 7*24*time.Hour
+	}
+
+	// Negative behavioral signals
+	if len(a.OrderNames) > 0 && len(b.OrderNames) > 0 {
+		s.OrderNameConflict = anyConflictingOrderNames(a.OrderNames, b.OrderNames)
+	}
+	if len(orderAddrsA) > 0 && len(orderAddrsB) > 0 {
+		s.OrderAddressConflict = anyConflictingOrderCountries(orderAddrsA, orderAddrsB)
+	}
+
 	return s
 }
 
@@ -175,9 +216,45 @@ func extractSignals(
 // It applies the rule table, falls back to a soft scorer for edge cases,
 // then subtracts penalties. Tier-1 hard-identity scores (≥ 0.97) bypass
 // penalties — an exact email match is conclusive regardless of other fields.
-func computeConfidence(sig Signals, emailSim, nameSim, phoneSim, addrSim float64) float64 {
+//
+// NOTE (architectural debt): behavioral early-return rules use hardcoded
+// confidence tiers. Edge cases that fall between rules get no behavioral
+// boost — they drop straight through to the profile rule table. A future
+// evolution should add a weighted fallback layer (similar to computeFallback
+// for profile signals) that blends behavioral evidence with profile evidence
+// rather than forcing a binary match/no-match. Deferred intentionally to
+// avoid over-engineering before we have real-world merge outcome data to
+// calibrate weights against. Track via: merge_source_counts metrics.
+func computeConfidence(sig Signals, emailSim, nameSim, phoneSim, addrSim float64, behavioralEnabled bool) (float64, string) {
 	if !sig.SameCountry {
-		return 0
+		return 0, ""
+	}
+
+	// Behavioral early-return rules — gated behind the feature flag.
+	if behavioralEnabled {
+		if sig.OrderAddressExact && sig.NameHigh && sig.SameCountry && !sig.DifferentLastName {
+			return 0.96, "behavioral"
+		}
+		if sig.OrderNameHigh && sig.PhoneExact {
+			return 0.95, "mixed"
+		}
+		if sig.OrderAddressExact && sig.EmailLocalExact {
+			return 0.94, "mixed"
+		}
+		if sig.RecentOrderOverlap && sig.OrderAddressPartial && sig.NameHigh {
+			return 0.91, "behavioral"
+		}
+		if sig.OrderAddressPartial && sig.NameHigh {
+			return 0.90, "mixed"
+		}
+
+		log.Debug().
+			Bool("order_address_exact", sig.OrderAddressExact).
+			Bool("order_address_partial", sig.OrderAddressPartial).
+			Bool("order_name_high", sig.OrderNameHigh).
+			Bool("recent_order_overlap", sig.RecentOrderOverlap).
+			Bool("different_last_name", sig.DifferentLastName).
+			Msg("behavioral rule evaluation")
 	}
 
 	base := computeBaseRules(sig)
@@ -191,12 +268,12 @@ func computeConfidence(sig Signals, emailSim, nameSim, phoneSim, addrSim float64
 	}
 
 	if base == 0 {
-		return 0
+		return 0, ""
 	}
 
 	// Tier-1 hard-identity scores are not penalised — they are conclusive.
 	if base >= 0.97 {
-		return base
+		return base, "profile"
 	}
 
 	// Apply penalty signals.
@@ -210,12 +287,18 @@ func computeConfidence(sig Signals, emailSim, nameSim, phoneSim, addrSim float64
 	if sig.PhoneAsymmetry {
 		penalty += 0.05
 	}
+	if sig.OrderNameConflict {
+		penalty += 0.10
+	}
+	if sig.OrderAddressConflict {
+		penalty += 0.12
+	}
 
 	result := base - penalty
 	if result < 0 {
-		return 0
+		return 0, ""
 	}
-	return result
+	return result, "profile"
 }
 
 // computeBaseRules is the explicit rule table.
@@ -470,6 +553,93 @@ func jaroWinkler(a, b string) float64 {
 		}
 	}
 	return jaro + float64(prefix)*0.1*(1-jaro)
+}
+
+// ── Behavioral signal helpers ──────────────────────────────────────────────
+
+func parseOrderAddresses(raw json.RawMessage) []models.OrderAddress {
+	if len(raw) == 0 {
+		return nil
+	}
+	var addrs []models.OrderAddress
+	if err := json.Unmarshal(raw, &addrs); err != nil {
+		return nil
+	}
+	return addrs
+}
+
+func anyExactOrderAddressMatch(as, bs []models.OrderAddress) bool {
+	for _, a := range as {
+		for _, b := range bs {
+			if strings.EqualFold(a.City, b.City) &&
+				strings.EqualFold(a.Zip, b.Zip) &&
+				strings.EqualFold(a.Country, b.Country) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func anyPartialOrderAddressMatch(as, bs []models.OrderAddress) bool {
+	for _, a := range as {
+		for _, b := range bs {
+			addrA := strings.ToLower(strings.Join([]string{a.Street, a.City, a.Zip, a.Country}, " "))
+			addrB := strings.ToLower(strings.Join([]string{b.Street, b.City, b.Zip, b.Country}, " "))
+			if levenshteinSim(addrA, addrB) >= 0.85 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func anyHighOrderNameMatch(as, bs []string) bool {
+	for _, a := range as {
+		for _, b := range bs {
+			if jaroWinkler(strings.ToLower(a), strings.ToLower(b)) >= 0.92 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// anyConflictingOrderNames returns true when at least one pair of order names
+// from each side clearly differs (Jaro-Winkler ≤ 0.70). Indicates different people
+// may have placed orders on these accounts.
+func anyConflictingOrderNames(as, bs []string) bool {
+	for _, a := range as {
+		for _, b := range bs {
+			if jaroWinkler(strings.ToLower(a), strings.ToLower(b)) <= 0.70 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// anyConflictingOrderCountries returns true when the two sides' order addresses
+// span different countries — a strong signal of distinct people.
+func anyConflictingOrderCountries(as, bs []models.OrderAddress) bool {
+	countriesA := make(map[string]struct{})
+	for _, a := range as {
+		if a.Country != "" {
+			countriesA[strings.ToUpper(a.Country)] = struct{}{}
+		}
+	}
+	if len(countriesA) == 0 {
+		return false
+	}
+	for _, b := range bs {
+		if b.Country == "" {
+			continue
+		}
+		if _, ok := countriesA[strings.ToUpper(b.Country)]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 func jaroSim(a, b string) float64 {

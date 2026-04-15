@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
@@ -87,6 +89,9 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 			State:             sc.State,
 			VerifiedEmail:     sc.VerifiedEmail,
 			ShopifyCreatedAt:  shopifyCreatedAt,
+			LastOrderAt:       sc.LastOrderAt,
+			OrderAddresses:    marshalOrderAddresses(sc.OrderAddresses),
+			OrderNames:        pq.StringArray(sc.OrderNames),
 			UpdatedAt:         time.Now(),
 		}
 
@@ -106,6 +111,14 @@ func (s *Service) SyncCustomers(ctx context.Context, merchantID uuid.UUID) (int,
 	}
 
 	return len(customers), nil
+}
+
+func marshalOrderAddresses(addrs []models.OrderAddress) json.RawMessage {
+	if len(addrs) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(addrs)
+	return b
 }
 
 func buildAddressJSON(sc shopifysvc.ShopifyCustomer) json.RawMessage {
