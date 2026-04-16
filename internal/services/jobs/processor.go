@@ -33,6 +33,9 @@ type MergePayload struct {
 	PrimaryCustomerID int64   `json:"primary_customer_id"`
 	SecondaryIDs      []int64 `json:"secondary_ids"`
 	PerformedBy       string  `json:"performed_by"`
+	// OverrideDisabled records that the user explicitly bypassed the
+	// disabled_account hard block. Passed to the orchestrator for audit logging.
+	OverrideDisabled  bool    `json:"override_disabled"`
 }
 
 // RestorePayload is the job payload for restore_snapshot jobs.
@@ -148,6 +151,7 @@ func (p *Processor) processMerge(ctx context.Context, job *models.Job) error {
 		PrimaryCustomerID: payload.PrimaryCustomerID,
 		SecondaryIDs:      payload.SecondaryIDs,
 		PerformedBy:       payload.PerformedBy,
+		OverrideDisabled:  payload.OverrideDisabled,
 	}
 
 	return p.orchestrator.Execute(ctx, req)

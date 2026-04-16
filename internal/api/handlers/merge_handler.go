@@ -61,6 +61,7 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		PrimaryCustomerID: req.PrimaryCustomerID,
 		SecondaryIDs:      req.SecondaryIDs,
 		PerformedBy:       merchant.ShopDomain, // default attribution
+		OverrideDisabled:  req.OverrideDisabled,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(
@@ -276,7 +277,7 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		Address: req.Selection.Address,
 		Name:    req.Selection.Name,
 	}
-	result := mergesvc.ValidateFinalProfile(customers, sel)
+	result := mergesvc.ValidateFinalProfile(customers, sel, req.OverrideDisabled)
 
 	// Ensure JSON arrays are never null.
 	if result.BlockingConflicts == nil {

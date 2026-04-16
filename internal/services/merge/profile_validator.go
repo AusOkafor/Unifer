@@ -38,14 +38,22 @@ type ProfileValidationResult struct {
 
 // ValidateFinalProfile checks the given customers for structural conflicts and
 // returns a split result. The FieldSelection parameter is recorded for context
-// but hard blockers are always determined by the raw customer data — they cannot
-// be overridden by field selection.
-func ValidateFinalProfile(customers []models.CustomerCache, _ FieldSelection) ProfileValidationResult {
+// but hard blockers are always determined by the raw customer data.
+//
+// overrideDisabled allows the caller to bypass the disabled_account block when
+// the user has explicitly acknowledged the risk. All other hard blocks (fraud
+// tags, different country, etc.) remain enforced regardless.
+func ValidateFinalProfile(customers []models.CustomerCache, _ FieldSelection, overrideDisabled bool) ProfileValidationResult {
 	result := intelligence.DetectConflicts(customers)
 
 	var blocking, resolvable []intelligence.ConflictItem
 	for _, c := range result.Conflicts {
-		if c.Blocking && !c.Resolvable {
+		isHardBlock := c.Blocking && !c.Resolvable
+		// disabled_account is overridable when the user has explicitly acknowledged it.
+		if isHardBlock && c.Type == "disabled_account" && overrideDisabled {
+			isHardBlock = false
+		}
+		if isHardBlock {
 			blocking = append(blocking, c)
 		} else {
 			resolvable = append(resolvable, c)

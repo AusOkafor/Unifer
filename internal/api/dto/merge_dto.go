@@ -11,6 +11,10 @@ type MergeExecuteRequest struct {
 	GroupID           string  `json:"group_id" binding:"required"`
 	PrimaryCustomerID int64   `json:"primary_customer_id" binding:"required"`
 	SecondaryIDs      []int64 `json:"secondary_ids" binding:"required,min=1"`
+	// OverrideDisabled bypasses the disabled_account hard block when the user
+	// has explicitly acknowledged that the merge may reactivate the account.
+	// All other hard blocks (fraud tags, different country) remain enforced.
+	OverrideDisabled  bool    `json:"override_disabled"`
 }
 
 type MergeExecuteResponse struct {
@@ -55,6 +59,9 @@ type MergeValidateRequest struct {
 		Address string `json:"address"`
 		Name    string `json:"name"`
 	} `json:"selection"`
+	// OverrideDisabled treats the disabled_account conflict as non-blocking
+	// when the user has acknowledged the risk.
+	OverrideDisabled bool `json:"override_disabled"`
 }
 
 // MergeValidateResponse is returned by POST /api/merge/validate.

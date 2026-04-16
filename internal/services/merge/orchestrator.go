@@ -23,6 +23,9 @@ type MergeRequest struct {
 	PrimaryCustomerID int64
 	SecondaryIDs      []int64
 	PerformedBy       string
+	// OverrideDisabled is true when the user explicitly bypassed the
+	// disabled_account hard block. Recorded in audit logs for traceability.
+	OverrideDisabled  bool
 }
 
 // Orchestrator coordinates the full merge pipeline:
@@ -89,6 +92,9 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 
 	// Step 2: Validate.
 	log.Info().Msg("merge: validating")
+	if req.OverrideDisabled {
+		log.Warn().Msg("merge: disabled_account override accepted — user acknowledged reactivation risk")
+	}
 	if err := o.validator.Validate(ctx, cacheCustomers); err != nil {
 		return fmt.Errorf("merge validation failed: %w", err)
 	}
