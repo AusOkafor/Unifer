@@ -109,6 +109,8 @@ func (h *MergeHandler) History(c *gin.Context) {
 			SecondaryCustomerIDs: []int64(r.SecondaryCustomerIDs),
 			OrdersMoved:          r.OrdersMoved,
 			PerformedBy:          r.PerformedBy,
+			ConfidenceSource:     r.ConfidenceSource,
+			OverrideUsed:         r.OverrideUsed,
 			CreatedAt:            r.CreatedAt,
 		}
 		if r.SnapshotID != nil {

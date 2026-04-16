@@ -16,5 +16,8 @@ type MergeRecord struct {
 	PerformedBy          string        `db:"performed_by"`
 	SnapshotID           *uuid.UUID    `db:"snapshot_id"`
 	ConfidenceSource     string        `db:"confidence_source"`
+	// OverrideUsed is true when the user explicitly bypassed the
+	// disabled_account block. Stored for audit trail and analytics.
+	OverrideUsed         bool          `db:"override_used"`
 	CreatedAt            time.Time     `db:"created_at"`
 }

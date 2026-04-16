@@ -29,6 +29,11 @@ type MergeRecordResponse struct {
 	OrdersMoved          int       `json:"orders_moved"`
 	PerformedBy          string    `json:"performed_by"`
 	SnapshotID           *string   `json:"snapshot_id,omitempty"`
+	// ConfidenceSource is "behavioral" | "profile" | "mixed" — the trust tier
+	// that drove the confidence score at the time of the merge.
+	ConfidenceSource     string    `json:"confidence_source,omitempty"`
+	// OverrideUsed is true when the user bypassed the disabled_account block.
+	OverrideUsed         bool      `json:"override_used"`
 	CreatedAt            time.Time `json:"created_at"`
 }
 

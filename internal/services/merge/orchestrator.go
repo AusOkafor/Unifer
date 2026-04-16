@@ -148,6 +148,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 		PerformedBy:          req.PerformedBy,
 		SnapshotID:           &snap.ID,
 		ConfidenceSource:     confidenceSource,
+		OverrideUsed:         req.OverrideDisabled,
 	}
 
 	if err := o.mergeRepo.Create(ctx, mergeRecord); err != nil {

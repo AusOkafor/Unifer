@@ -63,6 +63,7 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 		Behavioral int `json:"behavioral" db:"behavioral"`
 		Profile    int `json:"profile"    db:"profile"`
 		Mixed      int `json:"mixed"      db:"mixed"`
+		Override   int `json:"override"   db:"override"`
 	}
 
 	var (
@@ -215,7 +216,8 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 			SELECT
 				COUNT(*) FILTER (WHERE confidence_source = 'behavioral') AS behavioral,
 				COUNT(*) FILTER (WHERE confidence_source = 'profile')    AS profile,
-				COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed
+				COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed,
+				COUNT(*) FILTER (WHERE override_used = TRUE)             AS override
 			FROM merge_records
 			WHERE merchant_id = $1`, merchant.ID)
 	})

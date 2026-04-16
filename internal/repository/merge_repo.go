@@ -10,11 +10,13 @@ import (
 	"merger/backend/internal/models"
 )
 
-// ConfidenceSourceCounts holds aggregate merge counts broken down by confidence source.
+// ConfidenceSourceCounts holds aggregate merge counts broken down by confidence
+// source, plus the count of merges that required a user override.
 type ConfidenceSourceCounts struct {
 	Behavioral int `db:"behavioral" json:"behavioral"`
-	Profile    int `db:"profile" json:"profile"`
-	Mixed      int `db:"mixed" json:"mixed"`
+	Profile    int `db:"profile"    json:"profile"`
+	Mixed      int `db:"mixed"      json:"mixed"`
+	Override   int `db:"override"   json:"override"`
 }
 
 type MergeRepository interface {
@@ -35,9 +37,9 @@ func NewMergeRepo(db *sqlx.DB) MergeRepository {
 func (r *mergeRepo) Create(ctx context.Context, rec *models.MergeRecord) error {
 	query := `
 		INSERT INTO merge_records
-			(merchant_id, primary_customer_id, secondary_customer_ids, orders_moved, performed_by, snapshot_id, confidence_source)
+			(merchant_id, primary_customer_id, secondary_customer_ids, orders_moved, performed_by, snapshot_id, confidence_source, override_used)
 		VALUES
-			(:merchant_id, :primary_customer_id, :secondary_customer_ids, :orders_moved, :performed_by, :snapshot_id, :confidence_source)
+			(:merchant_id, :primary_customer_id, :secondary_customer_ids, :orders_moved, :performed_by, :snapshot_id, :confidence_source, :override_used)
 		RETURNING id, created_at`
 	rows, err := r.db.NamedQueryContext(ctx, query, rec)
 	if err != nil {
@@ -85,7 +87,8 @@ func (r *mergeRepo) CountByConfidenceSource(ctx context.Context, merchantID uuid
 		SELECT
 			COUNT(*) FILTER (WHERE confidence_source = 'behavioral') AS behavioral,
 			COUNT(*) FILTER (WHERE confidence_source = 'profile')    AS profile,
-			COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed
+			COUNT(*) FILTER (WHERE confidence_source = 'mixed')      AS mixed,
+			COUNT(*) FILTER (WHERE override_used = TRUE)             AS override
 		FROM merge_records
 		WHERE merchant_id = $1`,
 		merchantID,
