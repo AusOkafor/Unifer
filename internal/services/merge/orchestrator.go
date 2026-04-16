@@ -153,6 +153,14 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 
 	if err := o.mergeRepo.Create(ctx, mergeRecord); err != nil {
 		log.Error().Err(err).Msg("merge: audit record creation failed")
+	} else {
+		// Back-link snapshot → merge_record so Get(snapshot) and FindByMergeRecord work.
+		if err := o.snapshotSvc.LinkToMergeRecord(ctx, snap.ID, mergeRecord.ID); err != nil {
+			log.Warn().Err(err).
+				Str("snapshot_id", snap.ID.String()).
+				Str("merge_record_id", mergeRecord.ID.String()).
+				Msg("merge: link snapshot to merge record failed")
+		}
 	}
 
 	// Step 6: Mark duplicate group as merged + record learning signal.

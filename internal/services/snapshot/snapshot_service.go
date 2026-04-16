@@ -113,12 +113,9 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*models.Snapshot, *Sna
 	return snap, &data, nil
 }
 
-// LinkToMergeRecord updates the snapshot with the merge record ID after a successful merge.
+// LinkToMergeRecord updates the snapshot row with the merge_record_id back-reference
+// after the audit row is created. Must not use Create — that would INSERT a duplicate
+// snapshot and leave the original row (referenced by merge_records.snapshot_id) unchanged.
 func (s *Service) LinkToMergeRecord(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error {
-	snap, err := s.snapshotRepo.FindByID(ctx, snapshotID)
-	if err != nil {
-		return err
-	}
-	snap.MergeRecordID = &mergeRecordID
-	return s.snapshotRepo.Create(ctx, snap)
+	return s.snapshotRepo.UpdateMergeRecordID(ctx, snapshotID, mergeRecordID)
 }

@@ -13,6 +13,9 @@ import (
 
 type SnapshotRepository interface {
 	Create(ctx context.Context, s *models.Snapshot) error
+	// UpdateMergeRecordID sets the back-reference from snapshot to merge audit row
+	// after the merge completes (snapshot is created before merge_record exists).
+	UpdateMergeRecordID(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error
 	FindByID(ctx context.Context, id uuid.UUID) (*models.Snapshot, error)
 	FindByMergeRecord(ctx context.Context, mergeRecordID uuid.UUID) (*models.Snapshot, error)
 	PurgeOlderThan(ctx context.Context, merchantID uuid.UUID, days int) (int64, error)
@@ -38,6 +41,24 @@ func (r *snapshotRepo) Create(ctx context.Context, s *models.Snapshot) error {
 	defer rows.Close()
 	if rows.Next() {
 		return rows.Scan(&s.ID, &s.CreatedAt)
+	}
+	return nil
+}
+
+func (r *snapshotRepo) UpdateMergeRecordID(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE snapshots SET merge_record_id = $1 WHERE id = $2`,
+		mergeRecordID, snapshotID,
+	)
+	if err != nil {
+		return fmt.Errorf("snapshot update merge_record_id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("snapshot update rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("snapshot update: no row with id %s", snapshotID)
 	}
 	return nil
 }
