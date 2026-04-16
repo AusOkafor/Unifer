@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -157,10 +159,18 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 	// Enrich with cached customer details
 	if h.customerCacheRepo != nil {
 		ctx := c.Request.Context()
+		var missingCustomerIDs []int64
 		for _, shopifyID := range group.CustomerIDs {
 			cached, err := h.customerCacheRepo.FindByShopifyID(ctx, merchant.ID, shopifyID)
 			if err != nil {
-				h.log.Debug().Int64("shopify_id", shopifyID).Err(err).Msg("get duplicate: customer cache miss")
+				if errors.Is(err, sql.ErrNoRows) {
+					missingCustomerIDs = append(missingCustomerIDs, shopifyID)
+					h.log.Debug().Int64("shopify_id", shopifyID).
+						Msg("get duplicate: customer not in cache (likely merged or deleted)")
+					continue
+				}
+				h.log.Warn().Err(err).Int64("shopify_id", shopifyID).
+					Msg("get duplicate: customer cache lookup failed")
 				continue
 			}
 			tags := []string(cached.Tags)
@@ -181,6 +191,9 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 				VerifiedEmail:     cached.VerifiedEmail,
 				ShopifyCreatedAt:  cached.ShopifyCreatedAt,
 			})
+		}
+		if len(missingCustomerIDs) > 0 {
+			resp.MissingCustomerIDs = missingCustomerIDs
 		}
 	}
 

@@ -118,6 +118,9 @@ type DuplicateGroupDetailResponse struct {
 	DuplicateGroupResponse
 	Customers    []CustomerDetailDTO `json:"customers,omitempty"`
 	Intelligence *IntelligenceDTO    `json:"intelligence,omitempty"`
+	// MissingCustomerIDs lists Shopify IDs present on the group but not found in
+	// customer_cache (e.g. merged away, deleted in Shopify, or not yet synced).
+	MissingCustomerIDs []int64 `json:"missing_customer_ids,omitempty"`
 }
 
 type PaginatedDuplicates struct {
