@@ -52,8 +52,11 @@ func (h *SnapshotHandler) Get(c *gin.Context) {
 
 	snap, data, err := h.snapshotSvc.Get(c.Request.Context(), snapshotID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "snapshot not found"})
+		if errors.Is(err, snapshotsvc.ErrSnapshotNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "SNAPSHOT_NOT_FOUND",
+				"message": "Snapshot not found",
+			})
 			return
 		}
 		h.log.Error().Err(err).Str("snapshot_id", snapshotID.String()).Msg("snapshot get for preview")
@@ -167,7 +170,15 @@ func (h *SnapshotHandler) Restore(c *gin.Context) {
 
 	snap, err := h.snapshotRepo.FindByID(c.Request.Context(), snapshotID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "snapshot not found"})
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "SNAPSHOT_NOT_FOUND",
+				"message": "Snapshot not found",
+			})
+			return
+		}
+		h.log.Error().Err(err).Str("snapshot_id", snapshotID.String()).Msg("snapshot find for restore")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load snapshot"})
 		return
 	}
 

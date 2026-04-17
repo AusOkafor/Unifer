@@ -2,7 +2,9 @@ package snapshot
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +14,9 @@ import (
 	"merger/backend/internal/repository"
 	shopifysvc "merger/backend/internal/services/shopify"
 )
+
+// ErrSnapshotNotFound is returned when no row exists for the snapshot ID.
+var ErrSnapshotNotFound = errors.New("snapshot_not_found")
 
 // SnapshotData is the full pre-merge state stored in the snapshot.
 type SnapshotData struct {
@@ -102,6 +107,9 @@ func cacheToShopifyCustomer(c models.CustomerCache) shopifysvc.ShopifyCustomer {
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*models.Snapshot, *SnapshotData, error) {
 	snap, err := s.snapshotRepo.FindByID(ctx, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, ErrSnapshotNotFound
+		}
 		return nil, nil, fmt.Errorf("snapshot get: %w", err)
 	}
 

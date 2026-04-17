@@ -17,6 +17,8 @@ type SnapshotRepository interface {
 	// after the merge completes (snapshot is created before merge_record exists).
 	UpdateMergeRecordID(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error
 	FindByID(ctx context.Context, id uuid.UUID) (*models.Snapshot, error)
+	// Exists reports whether a snapshot row is present (e.g. for merge history UI).
+	Exists(ctx context.Context, id uuid.UUID) (bool, error)
 	FindByMergeRecord(ctx context.Context, mergeRecordID uuid.UUID) (*models.Snapshot, error)
 	PurgeOlderThan(ctx context.Context, merchantID uuid.UUID, days int) (int64, error)
 }
@@ -70,6 +72,15 @@ func (r *snapshotRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.Snap
 		return nil, fmt.Errorf("snapshot find: %w", err)
 	}
 	return &s, nil
+}
+
+func (r *snapshotRepo) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.db.GetContext(ctx, &ok, `SELECT EXISTS(SELECT 1 FROM snapshots WHERE id = $1)`, id)
+	if err != nil {
+		return false, fmt.Errorf("snapshot exists: %w", err)
+	}
+	return ok, nil
 }
 
 func (r *snapshotRepo) FindByMergeRecord(ctx context.Context, mergeRecordID uuid.UUID) (*models.Snapshot, error) {

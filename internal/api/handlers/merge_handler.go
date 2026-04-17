@@ -19,6 +19,7 @@ import (
 
 type MergeHandler struct {
 	mergeRepo         repository.MergeRepository
+	snapshotRepo      repository.SnapshotRepository
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
 	dispatcher        *jobs.Dispatcher
@@ -27,6 +28,7 @@ type MergeHandler struct {
 
 func NewMergeHandler(
 	mergeRepo repository.MergeRepository,
+	snapshotRepo repository.SnapshotRepository,
 	duplicateRepo repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
 	dispatcher *jobs.Dispatcher,
@@ -34,6 +36,7 @@ func NewMergeHandler(
 ) *MergeHandler {
 	return &MergeHandler{
 		mergeRepo:         mergeRepo,
+		snapshotRepo:      snapshotRepo,
 		duplicateRepo:     duplicateRepo,
 		customerCacheRepo: customerCacheRepo,
 		dispatcher:        dispatcher,
@@ -116,6 +119,13 @@ func (h *MergeHandler) History(c *gin.Context) {
 		if r.SnapshotID != nil {
 			s := r.SnapshotID.String()
 			item.SnapshotID = &s
+			ok, err := h.snapshotRepo.Exists(c.Request.Context(), *r.SnapshotID)
+			if err != nil {
+				h.log.Error().Err(err).Str("snapshot_id", s).Msg("snapshot exists check for history")
+				// Omit snapshot_available on error — client treats unknown as "try opening"
+			} else {
+				item.SnapshotAvailable = &ok
+			}
 		}
 		items[i] = item
 	}

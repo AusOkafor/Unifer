@@ -29,6 +29,8 @@ type MergeRecordResponse struct {
 	OrdersMoved          int       `json:"orders_moved"`
 	PerformedBy          string    `json:"performed_by"`
 	SnapshotID           *string   `json:"snapshot_id,omitempty"`
+	// SnapshotAvailable is set when snapshot_id is present: false if the row was deleted (e.g. retention purge).
+	SnapshotAvailable    *bool     `json:"snapshot_available,omitempty"`
 	// ConfidenceSource is "behavioral" | "profile" | "mixed" — the trust tier
 	// that drove the confidence score at the time of the merge.
 	ConfidenceSource     string    `json:"confidence_source,omitempty"`
