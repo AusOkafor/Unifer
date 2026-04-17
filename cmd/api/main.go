@@ -112,7 +112,7 @@ func main() {
 		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, settingsRepo, log),
 		Merge:     handlers.NewMergeHandler(mergeRepo, duplicateRepo, customerCacheRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),
-		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, dispatcher, log),
+		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, snapshotSvc, dispatcher, log),
 		Metrics:   handlers.NewMetricsHandler(sqlDB, log),
 		Settings:  handlers.NewSettingsHandler(settingsRepo, log),
 		Scan:      handlers.NewScanHandler(dispatcher, log),

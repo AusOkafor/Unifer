@@ -111,8 +111,10 @@ func (s *Server) registerRoutes() {
 	}
 
 	if s.h.Snapshot != nil {
+		api.GET("/snapshot/:id", s.h.Snapshot.Get)
 		api.POST("/snapshot/restore/:id", s.h.Snapshot.Restore)
 	} else {
+		api.GET("/snapshot/:id", s.stub("snapshot: get"))
 		api.POST("/snapshot/restore/:id", s.stub("snapshot: restore"))
 	}
 
