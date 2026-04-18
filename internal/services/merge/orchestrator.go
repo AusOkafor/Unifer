@@ -13,10 +13,23 @@ import (
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
 	"merger/backend/internal/services/intelligence"
-	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
 	"merger/backend/internal/utils"
 )
+
+// snapshotService is the subset of snapshot.Service used by the orchestrator.
+// Extracted as an interface so unit tests can inject a fake without a DB.
+type snapshotService interface {
+	CreateFromCache(ctx context.Context, merchantID uuid.UUID, customers []models.CustomerCache) (*models.Snapshot, error)
+	LinkToMergeRecord(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error
+}
+
+// mergeExecutor is the subset of Executor used by the orchestrator.
+// Extracted as an interface so unit tests can inject a recording fake
+// without making real Shopify API calls.
+type mergeExecutor interface {
+	Execute(ctx context.Context, primaryID int64, secondaryIDs []int64) (*ExecuteResult, error)
+}
 
 // MergeRequest holds the inputs for a merge operation.
 type MergeRequest struct {
@@ -34,18 +47,21 @@ type MergeRequest struct {
 // snapshot → validate → execute (customerMerge) → audit.
 type Orchestrator struct {
 	validator         *Validator
-	snapshotSvc       *snapshotsvc.Service
+	snapshotSvc       snapshotService
 	mergeRepo         repository.MergeRepository
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
 	merchantRepo      repository.MerchantRepository
 	encryptor         *utils.Encryptor
-	log               zerolog.Logger
+	// newExecutor builds a merge executor for a given merchant's Shopify credentials.
+	// Defaults to the real Shopify-backed executor; replaced in unit tests.
+	newExecutor func(domain, token string, log zerolog.Logger) mergeExecutor
+	log         zerolog.Logger
 }
 
 func NewOrchestrator(
 	validator *Validator,
-	snapshotSvc *snapshotsvc.Service,
+	snapshotSvc snapshotService,
 	mergeRepo repository.MergeRepository,
 	duplicateRepo repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
@@ -61,8 +77,16 @@ func NewOrchestrator(
 		customerCacheRepo: customerCacheRepo,
 		merchantRepo:      merchantRepo,
 		encryptor:         encryptor,
+		newExecutor:       defaultExecutorFactory,
 		log:               log,
 	}
+}
+
+// defaultExecutorFactory wires the real Shopify-backed executor.
+func defaultExecutorFactory(domain, token string, log zerolog.Logger) mergeExecutor {
+	client := shopifysvc.NewClient(domain, token, log)
+	customerSvc := shopifysvc.NewCustomerService(client)
+	return NewExecutor(customerSvc)
 }
 
 // Execute runs the full merge pipeline for a given request.
@@ -81,9 +105,6 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	if err != nil {
 		return fmt.Errorf("merge: decrypt token: %w", err)
 	}
-	shopifyClient := shopifysvc.NewClient(merchant.ShopDomain, token, o.log)
-	customerSvc := shopifysvc.NewCustomerService(shopifyClient)
-
 	if req.GroupID != uuid.Nil {
 		g, err := o.duplicateRepo.FindByID(ctx, req.GroupID)
 		if err != nil {
@@ -134,7 +155,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 
 	// Step 4: Execute via Shopify customerMerge GraphQL.
 	log.Info().Msg("merge: executing customerMerge")
-	executor := NewExecutor(customerSvc)
+	executor := o.newExecutor(merchant.ShopDomain, token, log)
 	result, err := executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs)
 	if err != nil {
 		log.Error().Err(err).Str("snapshot_id", snap.ID.String()).
@@ -145,7 +166,10 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	log.Info().Str("resulting_gid", result.ResultingCustomerGID).Msg("merge: customerMerge succeeded")
 
 	// Step 4b: Post-merge validation — non-blocking, best-effort.
-	o.validatePostMerge(ctx, result.ResultingCustomerGID, expectedMinOrders, customerSvc, log)
+	// Build a direct Shopify client for the REST fetch (separate from the executor).
+	validationClient := shopifysvc.NewClient(merchant.ShopDomain, token, log)
+	validationCustomerSvc := shopifysvc.NewCustomerService(validationClient)
+	o.validatePostMerge(ctx, result.ResultingCustomerGID, expectedMinOrders, validationCustomerSvc, log)
 
 	// Determine confidence source from the group's intelligence report (if available).
 	confidenceSource := ""
