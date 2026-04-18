@@ -14,6 +14,7 @@ import (
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
 	"merger/backend/internal/middleware"
+	billingpkg "merger/backend/internal/services/billing"
 	"merger/backend/internal/services/intelligence"
 	"merger/backend/internal/services/jobs"
 	mergesvc "merger/backend/internal/services/merge"
@@ -24,6 +25,7 @@ type MergeHandler struct {
 	snapshotRepo      repository.SnapshotRepository
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
+	settingsRepo      repository.SettingsRepository
 	dispatcher        *jobs.Dispatcher
 	log               zerolog.Logger
 }
@@ -33,6 +35,7 @@ func NewMergeHandler(
 	snapshotRepo repository.SnapshotRepository,
 	duplicateRepo repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
+	settingsRepo repository.SettingsRepository,
 	dispatcher *jobs.Dispatcher,
 	log zerolog.Logger,
 ) *MergeHandler {
@@ -41,6 +44,7 @@ func NewMergeHandler(
 		snapshotRepo:      snapshotRepo,
 		duplicateRepo:     duplicateRepo,
 		customerCacheRepo: customerCacheRepo,
+		settingsRepo:      settingsRepo,
 		dispatcher:        dispatcher,
 		log:               log,
 	}
@@ -48,6 +52,20 @@ func NewMergeHandler(
 
 func (h *MergeHandler) Execute(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	// Enforce monthly merge limit before accepting the request.
+	settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
+	if err == nil {
+		if err := billingpkg.CheckMergeAllowed(settings.Plan, settings.MergesThisMonth); err != nil {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "MERGE_LIMIT_REACHED",
+				"message": "Monthly merge limit reached — upgrade your plan to continue merging.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
+	// If settings lookup fails, proceed — don't block merges on a DB hiccup.
 
 	var req dto.MergeExecuteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -109,6 +127,12 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		return
 	}
 
+	// Increment the monthly merge counter after successful dispatch.
+	// Non-fatal: a DB hiccup here should not fail the already-accepted merge.
+	if err := h.settingsRepo.IncrementMergeCount(c.Request.Context(), merchant.ID); err != nil {
+		h.log.Warn().Err(err).Str("shop", merchant.ShopDomain).Msg("merge execute: increment merge count failed")
+	}
+
 	c.JSON(http.StatusAccepted, dto.MergeExecuteResponse{
 		JobID:  jobID.String(),
 		Status: models.JobStatusQueued,
@@ -117,6 +141,16 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 
 func (h *MergeHandler) History(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
+	if err == nil && !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureMergeHistory) {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":   "FEATURE_NOT_AVAILABLE",
+			"message": "Merge history is available on the Basic plan and above.",
+			"plan":    settings.Plan,
+		})
+		return
+	}
 
 	limit := 20
 	offset := 0
@@ -173,6 +207,17 @@ func (h *MergeHandler) History(c *gin.Context) {
 func (h *MergeHandler) BulkPreview(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
 
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureBulkMerge) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "FEATURE_NOT_AVAILABLE",
+				"message": "Bulk merge is available on the Pro plan.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
+
 	groups, err := h.duplicateRepo.ListSafeGroups(c.Request.Context(), merchant.ID)
 	if err != nil {
 		h.log.Error().Err(err).Msg("bulk preview: list safe groups")
@@ -209,6 +254,17 @@ func (h *MergeHandler) BulkPreview(c *gin.Context) {
 // through all safe groups.
 func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureBulkMerge) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "FEATURE_NOT_AVAILABLE",
+				"message": "Bulk merge is available on the Pro plan.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
 
 	// Batch size control — prevents rate limit spikes and queue congestion.
 	batchSize := 10

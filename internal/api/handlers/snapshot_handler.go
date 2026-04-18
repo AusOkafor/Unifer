@@ -14,6 +14,7 @@ import (
 	"merger/backend/internal/middleware"
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	billingpkg "merger/backend/internal/services/billing"
 	"merger/backend/internal/services/jobs"
 	shopifysvc "merger/backend/internal/services/shopify"
 	snapshotsvc "merger/backend/internal/services/snapshot"
@@ -22,6 +23,7 @@ import (
 type SnapshotHandler struct {
 	snapshotRepo repository.SnapshotRepository
 	snapshotSvc  *snapshotsvc.Service
+	settingsRepo repository.SettingsRepository
 	dispatcher   *jobs.Dispatcher
 	log          zerolog.Logger
 }
@@ -29,12 +31,14 @@ type SnapshotHandler struct {
 func NewSnapshotHandler(
 	snapshotRepo repository.SnapshotRepository,
 	snapshotSvc *snapshotsvc.Service,
+	settingsRepo repository.SettingsRepository,
 	dispatcher *jobs.Dispatcher,
 	log zerolog.Logger,
 ) *SnapshotHandler {
 	return &SnapshotHandler{
 		snapshotRepo: snapshotRepo,
 		snapshotSvc:  snapshotSvc,
+		settingsRepo: settingsRepo,
 		dispatcher:   dispatcher,
 		log:          log,
 	}
@@ -43,6 +47,17 @@ func NewSnapshotHandler(
 // Get returns snapshot metadata and customer rows for preview before restore.
 func (h *SnapshotHandler) Get(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureSnapshots) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "FEATURE_NOT_AVAILABLE",
+				"message": "Snapshots are available on the Basic plan and above.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
 
 	snapshotID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -161,6 +176,17 @@ func nonEmptyParts(parts ...string) []string {
 
 func (h *SnapshotHandler) Restore(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
+
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureRestore) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "FEATURE_NOT_AVAILABLE",
+				"message": "Snapshot restore is available on the Pro plan.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
 
 	snapshotID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
