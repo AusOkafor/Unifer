@@ -12,7 +12,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 )
@@ -37,19 +37,22 @@ func OpenTestDB(t *testing.T) *sqlx.DB {
 }
 
 // MustRunMigrations applies all SQL migrations up to the latest version.
-// Uses the runtime file path of this helper to locate the migrations directory,
-// so it works regardless of where `go test` is invoked from.
+// Uses os.DirFS + iofs source to avoid file:// URL parsing issues on Windows.
 func MustRunMigrations(t *testing.T, db *sqlx.DB) {
 	t.Helper()
 	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
 	if err != nil {
 		t.Fatalf("testhelper: migrate driver: %v", err)
 	}
-	m, err := migrate.NewWithDatabaseInstance(
-		migrationsDirURL(),
-		"postgres",
-		driver,
-	)
+
+	dir := migrationsDir()
+	fsys := os.DirFS(dir)
+	src, err := iofs.New(fsys, ".")
+	if err != nil {
+		t.Fatalf("testhelper: migrate iofs source: %v", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
 	if err != nil {
 		t.Fatalf("testhelper: migrate init: %v", err)
 	}
@@ -79,19 +82,17 @@ func TruncateAll(t *testing.T, db *sqlx.DB) {
 	}
 }
 
-// migrationsDirURL returns the migrations directory as a file:// URL that
-// golang-migrate can parse on all platforms, including Windows where a bare
-// "file://C:\..." is mis-parsed as host:port. The returned form is
-// "file:///C:/path/to/migrations" with forward slashes.
-func migrationsDirURL() string {
+// migrationsDir returns the absolute path to the SQL migrations directory.
+// runtime.Caller(0) gives the compile-time path of this file, so the result
+// is always correct regardless of the working directory at test time.
+func migrationsDir() string {
 	_, thisFile, _, _ := runtime.Caller(0)
+	// thisFile = .../internal/testhelper/db.go
+	// migrations = .../internal/db/migrations
 	dir := filepath.Join(filepath.Dir(thisFile), "..", "db", "migrations")
-	// Convert backslashes to forward slashes for the URL path component.
-	dir = filepath.ToSlash(dir)
-	// On Windows the path starts with a drive letter (e.g. "D:/...") which
-	// requires an extra leading slash to form a valid file URL: "file:///D:/...".
-	if len(dir) > 1 && dir[1] == ':' {
-		return "file:///" + dir
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
 	}
-	return "file://" + dir
+	return abs
 }
