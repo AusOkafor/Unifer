@@ -108,7 +108,13 @@ func main() {
 
 	// --- Handlers ---
 	h := &server.Handlers{
-		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.ShopifyAPIKey, log),
+		Auth: handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.ShopifyAPIKey, log),
+		Billing: handlers.NewBillingHandler(
+			settingsRepo, merchantRepo, encryptor,
+			cfg.AppURL, cfg.ShopifyAPIKey,
+			cfg.Environment != "production", // test mode outside production
+			log,
+		),
 		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, settingsRepo, log),
 		Merge:     handlers.NewMergeHandler(mergeRepo, snapshotRepo, duplicateRepo, customerCacheRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),

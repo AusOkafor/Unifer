@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -13,6 +14,12 @@ import (
 type SettingsRepository interface {
 	Get(ctx context.Context, merchantID uuid.UUID) (*models.MerchantSettings, error)
 	Upsert(ctx context.Context, s *models.MerchantSettings) error
+	// UpdatePlan sets the billing plan + subscription ID.
+	// Intentionally separate from Upsert so saving user settings never clobbers plan.
+	UpdatePlan(ctx context.Context, merchantID uuid.UUID, plan string, subscriptionID *string) error
+	// IncrementMergeCount bumps the monthly merge counter, resetting it if the
+	// billing window has rolled over into a new month.
+	IncrementMergeCount(ctx context.Context, merchantID uuid.UUID) error
 }
 
 type settingsRepo struct {
@@ -85,6 +92,43 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 	_, err := r.db.NamedExecContext(ctx, query, s)
 	if err != nil {
 		return fmt.Errorf("settings upsert: %w", err)
+	}
+	return nil
+}
+
+func (r *settingsRepo) UpdatePlan(ctx context.Context, merchantID uuid.UUID, plan string, subscriptionID *string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE merchant_settings
+		    SET plan = $1, shopify_subscription_id = $2
+		  WHERE merchant_id = $3`,
+		plan, subscriptionID, merchantID,
+	)
+	if err != nil {
+		return fmt.Errorf("settings update plan: %w", err)
+	}
+	return nil
+}
+
+func (r *settingsRepo) IncrementMergeCount(ctx context.Context, merchantID uuid.UUID) error {
+	now := time.Now().UTC()
+	// Reset the counter when we've rolled into a new calendar month.
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE merchant_settings
+		    SET merges_this_month = CASE
+		          WHEN DATE_TRUNC('month', merges_month_start) < DATE_TRUNC('month', $2::timestamptz)
+		          THEN 1
+		          ELSE merges_this_month + 1
+		        END,
+		        merges_month_start = CASE
+		          WHEN DATE_TRUNC('month', merges_month_start) < DATE_TRUNC('month', $2::timestamptz)
+		          THEN $2::date
+		          ELSE merges_month_start
+		        END
+		  WHERE merchant_id = $1`,
+		merchantID, now,
+	)
+	if err != nil {
+		return fmt.Errorf("settings increment merge count: %w", err)
 	}
 	return nil
 }

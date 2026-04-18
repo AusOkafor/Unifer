@@ -1,8 +1,17 @@
 package models
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type MerchantSettings struct {
+	// ── Billing ──────────────────────────────────────────────────────────────
+	Plan                   string     `db:"plan"`                    // free | basic | pro
+	ShopifySubscriptionID  *string    `db:"shopify_subscription_id"` // GID from appSubscriptionCreate
+	MergesThisMonth        int        `db:"merges_this_month"`
+	MergesMonthStart       time.Time  `db:"merges_month_start"`
 	MerchantID           uuid.UUID `db:"merchant_id"`
 	AutoDetect           bool      `db:"auto_detect"`
 	ConfidenceThreshold  int       `db:"confidence_threshold"`
@@ -45,6 +54,9 @@ type MerchantSettings struct {
 func DefaultSettings(merchantID uuid.UUID) *MerchantSettings {
 	return &MerchantSettings{
 		MerchantID:            merchantID,
+		Plan:                  "free",
+		MergesThisMonth:       0,
+		MergesMonthStart:      time.Now().UTC(),
 		AutoDetect:            true,
 		ConfidenceThreshold:   75,
 		RetentionDays:         90,

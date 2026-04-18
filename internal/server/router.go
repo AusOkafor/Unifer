@@ -15,6 +15,7 @@ import (
 // Handlers holds all the application handlers.
 type Handlers struct {
 	Auth      *handlers.AuthHandler
+	Billing   *handlers.BillingHandler
 	Duplicate *handlers.DuplicateHandler
 	Merge     *handlers.MergeHandler
 	Job       *handlers.JobHandler
@@ -67,6 +68,15 @@ func (s *Server) registerRoutes() {
 	} else {
 		authGroup.GET("/shopify", s.stub("auth: install"))
 		authGroup.GET("/shopify/callback", s.stub("auth: callback"))
+	}
+
+	// Billing callback — no JWT (Shopify redirects the merchant here after approval).
+	if s.h.Billing != nil {
+		s.engine.GET("/api/billing/callback", s.h.Billing.Callback)
+		s.engine.GET("/api/billing/plans", s.h.Billing.Plans)
+	} else {
+		s.engine.GET("/api/billing/callback", s.stub("billing: callback"))
+		s.engine.GET("/api/billing/plans", s.stub("billing: plans"))
 	}
 
 	// Webhook — HMAC-verified, no JWT
@@ -136,6 +146,15 @@ func (s *Server) registerRoutes() {
 	} else {
 		api.GET("/settings", s.stub("settings: get"))
 		api.PUT("/settings", s.stub("settings: update"))
+	}
+
+	// Billing — protected routes (require merchant session token).
+	if s.h.Billing != nil {
+		api.POST("/billing/subscribe", s.h.Billing.Subscribe)
+		api.GET("/billing/current", s.h.Billing.CurrentPlan)
+	} else {
+		api.POST("/billing/subscribe", s.stub("billing: subscribe"))
+		api.GET("/billing/current", s.stub("billing: current"))
 	}
 }
 
