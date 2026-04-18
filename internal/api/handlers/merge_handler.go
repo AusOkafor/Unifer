@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -55,6 +57,34 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 
 	if len(req.SecondaryIDs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one secondary customer ID required"})
+		return
+	}
+
+	groupUUID, err := uuid.Parse(req.GroupID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid group id"})
+		return
+	}
+
+	g, err := h.duplicateRepo.FindByID(c.Request.Context(), groupUUID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "duplicate group not found"})
+			return
+		}
+		h.log.Error().Err(err).Msg("merge execute: load duplicate group")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load duplicate group"})
+		return
+	}
+	if g.MerchantID != merchant.ID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+	if g.Status == "merged" {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "ALREADY_MERGED",
+			"message": "Duplicate group already merged",
+		})
 		return
 	}
 
@@ -306,6 +336,3 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		IsReadyToMerge:      result.IsReadyToMerge,
 	})
 }
-
-// needed for uuid.Nil check in other handlers
-var _ = uuid.Nil

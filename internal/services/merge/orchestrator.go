@@ -2,6 +2,8 @@ package merge
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -81,6 +83,22 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	}
 	shopifyClient := shopifysvc.NewClient(merchant.ShopDomain, token, o.log)
 	customerSvc := shopifysvc.NewCustomerService(shopifyClient)
+
+	if req.GroupID != uuid.Nil {
+		g, err := o.duplicateRepo.FindByID(ctx, req.GroupID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("merge: duplicate group not found: %w", err)
+			}
+			return fmt.Errorf("merge: load duplicate group: %w", err)
+		}
+		if g.MerchantID != req.MerchantID {
+			return fmt.Errorf("merge: duplicate group belongs to another merchant")
+		}
+		if g.Status == "merged" {
+			return ErrAlreadyMerged
+		}
+	}
 
 	// Step 1: Load customer data from cache for validation.
 	log.Info().Msg("merge: loading customer data from cache")
@@ -165,8 +183,13 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 
 	// Step 6: Mark duplicate group as merged + record learning signal.
 	if req.GroupID != uuid.Nil {
-		if err := o.duplicateRepo.UpdateStatus(ctx, req.GroupID, "merged"); err != nil {
-			log.Warn().Err(err).Str("group_id", req.GroupID.String()).Msg("merge: update group status failed")
+		ok, err := o.duplicateRepo.TryTransitionToMerged(ctx, req.GroupID)
+		if err != nil {
+			log.Warn().Err(err).Str("group_id", req.GroupID.String()).Msg("merge: mark merged failed")
+			return fmt.Errorf("merge: update group status: %w", err)
+		}
+		if !ok {
+			return ErrAlreadyMerged
 		}
 		// confirmed_by_user=true when a human explicitly triggered the merge
 		// (i.e. not a bulk/automated job). Bulk jobs set PerformedBy to include "(bulk)".

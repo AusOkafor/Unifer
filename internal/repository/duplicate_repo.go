@@ -18,6 +18,9 @@ type DuplicateRepository interface {
 	ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	// TryTransitionToMerged sets status=merged only when not already merged.
+	// Returns ok=false when another process already merged the row (no rows updated).
+	TryTransitionToMerged(ctx context.Context, id uuid.UUID) (ok bool, err error)
 	// DismissGroup sets status=dismissed and records the optional reason + timestamp.
 	DismissGroup(ctx context.Context, id uuid.UUID, reason string) error
 	// MarkConfirmedByUser sets confirmed_by_user on the group, recording whether
@@ -154,6 +157,24 @@ func (r *duplicateRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status s
 		return fmt.Errorf("duplicate group update status: %w", err)
 	}
 	return nil
+}
+
+func (r *duplicateRepo) TryTransitionToMerged(ctx context.Context, id uuid.UUID) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE duplicate_groups
+		 SET status = 'merged',
+		     merged_at = NOW()
+		 WHERE id = $1 AND status != 'merged'`,
+		id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("duplicate group try transition to merged: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("duplicate group try transition rows: %w", err)
+	}
+	return n > 0, nil
 }
 
 func (r *duplicateRepo) DismissGroup(ctx context.Context, id uuid.UUID, reason string) error {
