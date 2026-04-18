@@ -51,8 +51,11 @@ func Load() (*Config, error) {
 	if cfg.EncryptionKey == "" {
 		return nil, fmt.Errorf("ENCRYPTION_KEY is required")
 	}
-	if cfg.JWTSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET is required")
+	if cfg.ShopifyAPIKey == "" {
+		return nil, fmt.Errorf("SHOPIFY_API_KEY is required")
+	}
+	if cfg.ShopifyAPISecret == "" {
+		return nil, fmt.Errorf("SHOPIFY_API_SECRET is required")
 	}
 
 	return cfg, nil

@@ -78,7 +78,7 @@ func (s *Server) registerRoutes() {
 
 	// Protected API routes
 	api := s.engine.Group("/api")
-	api.Use(middleware.AuthRequired(s.cfg.JWTSecret, s.merchantRepo))
+	api.Use(middleware.AuthRequired(s.cfg.ShopifyAPISecret, s.cfg.ShopifyAPIKey, s.merchantRepo))
 
 	if s.h.Duplicate != nil {
 		api.GET("/duplicates", s.h.Duplicate.List)

@@ -108,7 +108,7 @@ func main() {
 
 	// --- Handlers ---
 	h := &server.Handlers{
-		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.JWTSecret, cfg.FrontendURL, log),
+		Auth:      handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.ShopifyAPIKey, log),
 		Duplicate: handlers.NewDuplicateHandler(duplicateRepo, customerCacheRepo, settingsRepo, log),
 		Merge:     handlers.NewMergeHandler(mergeRepo, snapshotRepo, duplicateRepo, customerCacheRepo, dispatcher, log),
 		Job:       handlers.NewJobHandler(jobRepo, log),

@@ -1,0 +1,35 @@
+# Customer Harmony — Shopify App Configuration
+# Replace YOUR_API_KEY_HERE with the client_id from Partner Dashboard after creating the app.
+
+client_id = "YOUR_API_KEY_HERE"
+name = "Customer Harmony"
+application_url = "https://identity-manager-4ew0.onrender.com"
+embedded = true
+
+[access_scopes]
+scopes = "read_customers,write_customers,read_orders"
+
+[auth]
+redirect_urls = [
+  "https://identity-manager-4ew0.onrender.com/auth/shopify/callback"
+]
+
+[webhooks]
+api_version = "2024-01"
+
+  [[webhooks.subscriptions]]
+  topics = ["customers/create", "customers/update", "customers/delete"]
+  uri = "/api/webhooks/shopify"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/create", "orders/updated"]
+  uri = "/api/webhooks/shopify"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/api/webhooks/shopify"
+
+# NOTE: GDPR compliance webhooks (customers/data_request, customers/redact,
+# shop/redact) CANNOT be registered via TOML. You must register them manually
+# in Partner Dashboard → App setup → Compliance webhooks, pointing to:
+#   https://identity-manager-4ew0.onrender.com/api/webhooks/shopify
