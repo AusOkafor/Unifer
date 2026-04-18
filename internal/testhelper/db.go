@@ -46,7 +46,7 @@ func MustRunMigrations(t *testing.T, db *sqlx.DB) {
 		t.Fatalf("testhelper: migrate driver: %v", err)
 	}
 	m, err := migrate.NewWithDatabaseInstance(
-		"file://"+migrationsDir(),
+		migrationsDirURL(),
 		"postgres",
 		driver,
 	)
@@ -79,11 +79,19 @@ func TruncateAll(t *testing.T, db *sqlx.DB) {
 	}
 }
 
-// migrationsDir returns the absolute path to the SQL migrations directory,
-// derived from the location of this source file at compile time.
-func migrationsDir() string {
-	// __file__ is internal/testhelper/db.go
-	// migrations are at  internal/db/migrations/
+// migrationsDirURL returns the migrations directory as a file:// URL that
+// golang-migrate can parse on all platforms, including Windows where a bare
+// "file://C:\..." is mis-parsed as host:port. The returned form is
+// "file:///C:/path/to/migrations" with forward slashes.
+func migrationsDirURL() string {
 	_, thisFile, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(thisFile), "..", "db", "migrations")
+	dir := filepath.Join(filepath.Dir(thisFile), "..", "db", "migrations")
+	// Convert backslashes to forward slashes for the URL path component.
+	dir = filepath.ToSlash(dir)
+	// On Windows the path starts with a drive letter (e.g. "D:/...") which
+	// requires an extra leading slash to form a valid file URL: "file:///D:/...".
+	if len(dir) > 1 && dir[1] == ':' {
+		return "file:///" + dir
+	}
+	return "file://" + dir
 }
