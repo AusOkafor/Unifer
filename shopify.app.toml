@@ -1,7 +1,7 @@
 # Customer Harmony — Shopify App Configuration
 # Replace YOUR_API_KEY_HERE with the client_id from Partner Dashboard after creating the app.
 
-client_id = "YOUR_API_KEY_HERE"
+client_id = "fe48674949fdd16d375d47ffa74b5de3"
 name = "Customer Harmony"
 application_url = "https://identity-manager-4ew0.onrender.com"
 embedded = true
