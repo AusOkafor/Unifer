@@ -137,13 +137,10 @@ func (s *Server) registerRoutes() {
 
 	if s.h.Scan != nil {
 		api.POST("/scan", s.h.Scan.Trigger)
+		api.POST("/scan/daily", s.h.Scan.TriggerDailyScan)
 	} else {
 		api.POST("/scan", s.stub("scan: trigger"))
-	}
-
-	// Dev/staging-only endpoint to trigger the daily scan without waiting for 3 AM UTC.
-	if s.cfg.Environment != "production" && s.h.Scan != nil {
-		s.engine.POST("/api/internal/trigger-daily-scan", s.h.Scan.TriggerDailyScan)
+		api.POST("/scan/daily", s.stub("scan: trigger-daily"))
 	}
 
 	if s.h.Settings != nil {
