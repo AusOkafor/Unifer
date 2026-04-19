@@ -106,13 +106,21 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		return
 	}
 
+	// Respect the merchant's block_disabled_accounts setting at execute time too.
+	execOverride := req.OverrideDisabled
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !settings.BlockDisabledAccounts {
+			execOverride = true
+		}
+	}
+
 	payload := jobs.MergePayload{
 		MerchantID:        merchant.ID.String(),
 		GroupID:           req.GroupID,
 		PrimaryCustomerID: req.PrimaryCustomerID,
 		SecondaryIDs:      req.SecondaryIDs,
 		PerformedBy:       merchant.ShopDomain, // default attribution
-		OverrideDisabled:  req.OverrideDisabled,
+		OverrideDisabled:  execOverride,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(
@@ -369,13 +377,23 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		return
 	}
 
+	// Respect the merchant's block_disabled_accounts setting.
+	// When the merchant has turned that guard off, treat disabled_account as
+	// non-blocking automatically — no manual override checkbox needed.
+	overrideDisabled := req.OverrideDisabled
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !settings.BlockDisabledAccounts {
+			overrideDisabled = true
+		}
+	}
+
 	sel := mergesvc.FieldSelection{
 		Email:   req.Selection.Email,
 		Phone:   req.Selection.Phone,
 		Address: req.Selection.Address,
 		Name:    req.Selection.Name,
 	}
-	result := mergesvc.ValidateFinalProfile(customers, sel, req.OverrideDisabled)
+	result := mergesvc.ValidateFinalProfile(customers, sel, overrideDisabled)
 
 	// Ensure JSON arrays are never null.
 	if result.BlockingConflicts == nil {
