@@ -162,13 +162,13 @@ func (h *MetricsHandler) Dashboard(c *gin.Context) {
 	g.Go(func() error {
 		row := h.db.QueryRowContext(gCtx, `
 			SELECT
-				ROUND(COUNT(*) FILTER (WHERE phone = '' OR phone IS NULL)::numeric * 100.0
-					/ NULLIF(COUNT(*), 0), 1) AS missing_phone_pct,
-				ROUND(COUNT(*) FILTER (WHERE NOT verified_email)::numeric * 100.0
-					/ NULLIF(COUNT(*), 0), 1) AS unverified_email_pct,
-				ROUND(COUNT(*) FILTER (WHERE address_json IS NULL
+				COALESCE(ROUND(COUNT(*) FILTER (WHERE phone = '' OR phone IS NULL)::numeric * 100.0
+					/ NULLIF(COUNT(*), 0), 1), 0) AS missing_phone_pct,
+				COALESCE(ROUND(COUNT(*) FILTER (WHERE NOT verified_email)::numeric * 100.0
+					/ NULLIF(COUNT(*), 0), 1), 0) AS unverified_email_pct,
+				COALESCE(ROUND(COUNT(*) FILTER (WHERE address_json IS NULL
 					OR address_json::text IN ('{}', 'null', ''))::numeric * 100.0
-					/ NULLIF(COUNT(*), 0), 1) AS incomplete_address_pct
+					/ NULLIF(COUNT(*), 0), 1), 0) AS incomplete_address_pct
 			FROM customer_cache
 			WHERE merchant_id = $1
 		`, merchant.ID)
