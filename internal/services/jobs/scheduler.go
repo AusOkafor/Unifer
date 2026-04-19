@@ -65,6 +65,13 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 }
 
+// RunNow immediately executes a daily scan for all eligible merchants.
+// Used by the test endpoint so you can verify the scheduler logic without
+// waiting for 3 AM UTC.
+func (s *Scheduler) RunNow(ctx context.Context) {
+	s.runDailyScan(ctx)
+}
+
 func (s *Scheduler) runDailyScan(ctx context.Context) {
 	s.log.Info().Msg("daily scanner: starting")
 
