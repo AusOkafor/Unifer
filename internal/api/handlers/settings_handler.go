@@ -9,6 +9,7 @@ import (
 	"merger/backend/internal/middleware"
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	billingpkg "merger/backend/internal/services/billing"
 )
 
 type SettingsHandler struct {
@@ -28,6 +29,7 @@ func (h *SettingsHandler) Get(c *gin.Context) {
 		s = models.DefaultSettings(merchant.ID)
 	}
 
+	enforceSettingsGates(s)
 	c.JSON(http.StatusOK, settingsResponse(s))
 }
 
@@ -158,6 +160,8 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		s.EnableBehavioralSignals = *req.EnableBehavioralSignals
 	}
 
+	enforceSettingsGates(s)
+
 	if err := h.settingsRepo.Upsert(c.Request.Context(), s); err != nil {
 		h.log.Error().Err(err).Msg("update settings")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save settings"})
@@ -165,6 +169,23 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settingsResponse(s))
+}
+
+// enforceSettingsGates zeros out any feature flags that the merchant's current plan
+// does not include. Called on both Get and Update so the DB value is never stale.
+func enforceSettingsGates(s *models.MerchantSettings) {
+	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureOrderIntelligence) {
+		s.EnableBehavioralSignals = false
+	}
+	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureAutoDetect) {
+		s.AutoDetect = false
+		s.ScanFrequency = "manual"
+	}
+	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureBulkMerge) {
+		s.BulkMaxBatch = 10
+		s.BulkDelayMs = 500
+		s.BulkRequirePreview = true
+	}
 }
 
 func settingsResponse(s *models.MerchantSettings) gin.H {
