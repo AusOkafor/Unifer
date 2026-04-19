@@ -141,6 +141,11 @@ func (s *Server) registerRoutes() {
 		api.POST("/scan", s.stub("scan: trigger"))
 	}
 
+	// Dev/staging-only endpoint to trigger the daily scan without waiting for 3 AM UTC.
+	if s.cfg.Environment != "production" && s.h.Scan != nil {
+		s.engine.POST("/api/internal/trigger-daily-scan", s.h.Scan.TriggerDailyScan)
+	}
+
 	if s.h.Settings != nil {
 		api.GET("/settings", s.h.Settings.Get)
 		api.PUT("/settings", s.h.Settings.Update)

@@ -13,11 +13,27 @@ import (
 
 type ScanHandler struct {
 	dispatcher *jobs.Dispatcher
+	scheduler  *jobs.Scheduler // may be nil; only used by TriggerDailyScan
 	log        zerolog.Logger
 }
 
 func NewScanHandler(dispatcher *jobs.Dispatcher, log zerolog.Logger) *ScanHandler {
 	return &ScanHandler{dispatcher: dispatcher, log: log}
+}
+
+func NewScanHandlerWithScheduler(dispatcher *jobs.Dispatcher, scheduler *jobs.Scheduler, log zerolog.Logger) *ScanHandler {
+	return &ScanHandler{dispatcher: dispatcher, scheduler: scheduler, log: log}
+}
+
+// TriggerDailyScan immediately runs the daily scan for all eligible merchants.
+// Only available outside production — used for testing the scheduler logic.
+func (h *ScanHandler) TriggerDailyScan(c *gin.Context) {
+	if h.scheduler == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "scheduler not wired"})
+		return
+	}
+	h.scheduler.RunNow(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{"message": "daily scan triggered — check logs and job queue"})
 }
 
 // Trigger queues a sync_customers job for the authenticated merchant.

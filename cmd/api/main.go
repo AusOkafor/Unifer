@@ -125,7 +125,7 @@ func main() {
 		Snapshot:  handlers.NewSnapshotHandler(snapshotRepo, snapshotSvc, settingsRepo, dispatcher, log),
 		Metrics:   handlers.NewMetricsHandler(sqlDB, log),
 		Settings:  handlers.NewSettingsHandler(settingsRepo, log),
-		Scan:      handlers.NewScanHandler(dispatcher, log),
+		Scan:      handlers.NewScanHandlerWithScheduler(dispatcher, scheduler, log),
 		Webhook: handlers.NewWebhookHandler(
 			cfg.ShopifyWebhookSecret,
 			merchantRepo,
