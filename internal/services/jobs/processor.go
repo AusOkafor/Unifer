@@ -12,6 +12,7 @@ import (
 	"merger/backend/internal/repository"
 	"merger/backend/internal/services/identity"
 	mergesvc "merger/backend/internal/services/merge"
+	notifsvc "merger/backend/internal/services/notification"
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	syncsvc "merger/backend/internal/services/sync"
 )
@@ -52,6 +53,7 @@ type Processor struct {
 	syncSvc      *syncsvc.Service
 	jobRepo      repository.JobRepository
 	dispatcher   *Dispatcher
+	notifSvc     *notifsvc.Service // may be nil — notifications skipped if not wired
 	log          zerolog.Logger
 }
 
@@ -62,6 +64,7 @@ func NewProcessor(
 	syncSvc *syncsvc.Service,
 	jobRepo repository.JobRepository,
 	dispatcher *Dispatcher,
+	notifSvc *notifsvc.Service,
 	log zerolog.Logger,
 ) *Processor {
 	return &Processor{
@@ -71,6 +74,7 @@ func NewProcessor(
 		syncSvc:      syncSvc,
 		jobRepo:      jobRepo,
 		dispatcher:   dispatcher,
+		notifSvc:     notifSvc,
 		log:          log,
 	}
 }
@@ -126,7 +130,14 @@ func (p *Processor) processDetect(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return fmt.Errorf("invalid merchant id: %w", err)
 	}
-	return p.detector.RunDetection(ctx, merchantID)
+	if err := p.detector.RunDetection(ctx, merchantID); err != nil {
+		return err
+	}
+	// Notify after successful detection (non-blocking — best-effort).
+	if p.notifSvc != nil {
+		p.notifSvc.OnDetectComplete(ctx, merchantID)
+	}
+	return nil
 }
 
 func (p *Processor) processMerge(ctx context.Context, job *models.Job) error {
@@ -154,7 +165,16 @@ func (p *Processor) processMerge(ctx context.Context, job *models.Job) error {
 		OverrideDisabled:  payload.OverrideDisabled,
 	}
 
-	return p.orchestrator.Execute(ctx, req)
+	if err := p.orchestrator.Execute(ctx, req); err != nil {
+		if p.notifSvc != nil {
+			p.notifSvc.OnMergeFailed(ctx, merchantID, err)
+		}
+		return err
+	}
+	if p.notifSvc != nil {
+		p.notifSvc.OnMergeComplete(ctx, merchantID, payload.PrimaryCustomerID, len(payload.SecondaryIDs))
+	}
+	return nil
 }
 
 func (p *Processor) processRestore(ctx context.Context, job *models.Job) error {

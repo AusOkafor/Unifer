@@ -19,6 +19,7 @@ import (
 	"merger/backend/internal/services/intelligence"
 	"merger/backend/internal/services/jobs"
 	mergesvc "merger/backend/internal/services/merge"
+	notifsvc "merger/backend/internal/services/notification"
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
 	syncsvc "merger/backend/internal/services/sync"
@@ -77,6 +78,7 @@ func main() {
 	snapshotRepo := repository.NewSnapshotRepo(sqlDB)
 	jobRepo := repository.NewJobRepo(sqlDB)
 	settingsRepo := repository.NewSettingsRepo(sqlDB)
+	notifRepo := repository.NewNotificationRepo(sqlDB)
 
 	// --- Queue ---
 	q := queue.New(redisClient)
@@ -103,8 +105,10 @@ func main() {
 	analyzer := intelligence.NewAnalyzer()
 	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, settingsRepo, analyzer, log)
 	syncService := syncsvc.NewService(merchantRepo, customerCacheRepo, encryptor, log)
-	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, log)
+	notificationSvc := notifsvc.NewService(notifRepo, settingsRepo, sqlDB, log)
+	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, notificationSvc, log)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)
+	scheduler := jobs.NewScheduler(merchantRepo, settingsRepo, dispatcher, log)
 
 	// --- Handlers ---
 	h := &server.Handlers{
@@ -131,6 +135,7 @@ func main() {
 			webhookIdempotency,
 			log,
 		),
+		Notification: handlers.NewNotificationHandler(notifRepo, log),
 	}
 
 	// --- Server ---
@@ -170,9 +175,10 @@ func main() {
 		}
 	}()
 
-	// Start worker in background
+	// Start worker and daily scheduler in background
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	go worker.Start(workerCtx)
+	go scheduler.Start(workerCtx)
 
 	// Start server
 	go func() {

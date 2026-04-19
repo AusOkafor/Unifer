@@ -14,16 +14,17 @@ import (
 
 // Handlers holds all the application handlers.
 type Handlers struct {
-	Auth      *handlers.AuthHandler
-	Billing   *handlers.BillingHandler
-	Duplicate *handlers.DuplicateHandler
-	Merge     *handlers.MergeHandler
-	Job       *handlers.JobHandler
-	Snapshot  *handlers.SnapshotHandler
-	Metrics   *handlers.MetricsHandler
-	Settings  *handlers.SettingsHandler
-	Scan      *handlers.ScanHandler
-	Webhook   *handlers.WebhookHandler
+	Auth         *handlers.AuthHandler
+	Billing      *handlers.BillingHandler
+	Duplicate    *handlers.DuplicateHandler
+	Merge        *handlers.MergeHandler
+	Job          *handlers.JobHandler
+	Snapshot     *handlers.SnapshotHandler
+	Metrics      *handlers.MetricsHandler
+	Settings     *handlers.SettingsHandler
+	Scan         *handlers.ScanHandler
+	Webhook      *handlers.WebhookHandler
+	Notification *handlers.NotificationHandler
 }
 
 type Server struct {
@@ -155,6 +156,16 @@ func (s *Server) registerRoutes() {
 	} else {
 		api.POST("/billing/subscribe", s.stub("billing: subscribe"))
 		api.GET("/billing/current", s.stub("billing: current"))
+	}
+
+	if s.h.Notification != nil {
+		api.GET("/notifications", s.h.Notification.List)
+		api.POST("/notifications/read-all", s.h.Notification.MarkAllRead)
+		api.PATCH("/notifications/:id/read", s.h.Notification.MarkRead)
+	} else {
+		api.GET("/notifications", s.stub("notifications: list"))
+		api.POST("/notifications/read-all", s.stub("notifications: read-all"))
+		api.PATCH("/notifications/:id/read", s.stub("notifications: mark-read"))
 	}
 }
 
