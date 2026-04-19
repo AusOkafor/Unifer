@@ -98,11 +98,10 @@ func (s *Service) OnDetectComplete(ctx context.Context, merchantID uuid.UUID) {
 // OnMergeComplete is called after a successful merge_customers job.
 func (s *Service) OnMergeComplete(ctx context.Context, merchantID uuid.UUID, primaryID int64, secondaryCount int) {
 	settings, err := s.settingsRepo.Get(ctx, merchantID)
-	if err != nil || !settings.NotificationsEnabled {
+	if err != nil || !settings.NotificationsEnabled || !settings.NotifyBulkComplete {
 		return
 	}
 
-	// Always notify on single merges; for bulk the caller passes a count > 1.
 	body := fmt.Sprintf("Customer %d merged with %d duplicate%s successfully.",
 		primaryID, secondaryCount, pluralS(secondaryCount))
 	s.create(ctx, merchantID, models.NotificationTypeMergeCompleted,
