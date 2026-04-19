@@ -31,7 +31,7 @@ const (
 
 // Monthly merge limits (-1 = unlimited).
 const (
-	MergeLimitFree  = 10
+	MergeLimitFree  = 5
 	MergeLimitBasic = -1
 	MergeLimitPro   = -1
 )
