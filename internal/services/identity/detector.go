@@ -69,7 +69,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 	d.log.Info().Int("count", len(customers)).Str("merchant", merchantID.String()).Msg("running detection")
 
 	// Load merchant signal settings. Defaults are the safe/conservative direction
-	// (all signals enabled, both risk guards active) so a DB miss never loosens scoring.
+	// (all signals enabled, all risk guards active) so a DB miss never loosens scoring.
 	scoreOpts := ScoreOptions{
 		BehavioralEnabled: false,
 		SignalEmail:       true,
@@ -77,8 +77,11 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		SignalAddress:     true,
 		SignalName:        true,
 	}
-	weakLinkProtection := true
-	requireAnchor := true
+	weakLinkProtection   := true
+	requireAnchor        := true
+	blockDisabledAccounts := true
+	blockFraudTags        := true
+	blockDifferentCountry := true
 	if d.settingsRepo != nil {
 		if settings, err := d.settingsRepo.Get(ctx, merchantID); err == nil {
 			scoreOpts.BehavioralEnabled = settings.EnableBehavioralSignals
@@ -88,6 +91,9 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			scoreOpts.SignalName = settings.SignalName
 			weakLinkProtection = settings.WeakLinkProtection
 			requireAnchor = settings.RequireAnchor
+			blockDisabledAccounts = settings.BlockDisabledAccounts
+			blockFraudTags = settings.BlockFraudTags
+			blockDifferentCountry = settings.BlockDifferentCountry
 		}
 	}
 	d.log.Info().
@@ -98,6 +104,9 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		Bool("signal_name", scoreOpts.SignalName).
 		Bool("weak_link_protection", weakLinkProtection).
 		Bool("require_anchor", requireAnchor).
+		Bool("block_disabled_accounts", blockDisabledAccounts).
+		Bool("block_fraud_tags", blockFraudTags).
+		Bool("block_different_country", blockDifferentCountry).
 		Msg("detection: signal settings")
 
 	// Clear stale pending groups before rebuilding — ensures merged/deleted
@@ -136,13 +145,18 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		weakestEdge := WeakestClusterEdge(pairs, memberIDs)
 		members := gatherMembers(memberIDs, customerByID)
 
+		// Detect conflicts unconditionally — needed for both risk classification
+		// and the intelligence report. Per-customer checks (disabled_account,
+		// different_countries, risk_tag) are aggregate by nature so one call
+		// covers all cluster members.
+		cr := intelligence.DetectConflicts(members)
+		conflictSeverity := cr.Severity
+
 		// Generate intelligence report and enrich with breakdown, reasons,
-		// and structural conflict analysis. Collect results before building
-		// the group model so risk classification can use conflict severity.
+		// and structural conflict analysis.
 		var (
-			intelJSON        []byte
-			readinessScore   *float64
-			conflictSeverity string
+			intelJSON      []byte
+			readinessScore *float64
 		)
 		if d.analyzer != nil {
 			if report, err := d.analyzer.Analyze(members); err == nil {
@@ -161,24 +175,22 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 					}
 				}
 
-			// Populate behavioral signals and confidence source from the top pair.
-			if topPair != nil {
-				report.BehavioralSignals = &intelligence.BehavioralSignals{
-					OrderAddressExact:    topPair.Sig.OrderAddressExact,
-					OrderAddressPartial:  topPair.Sig.OrderAddressPartial,
-					OrderNameHigh:        topPair.Sig.OrderNameHigh,
-					RecentOrderOverlap:   topPair.Sig.RecentOrderOverlap,
-					OrderNameConflict:    topPair.Sig.OrderNameConflict,
-					OrderAddressConflict: topPair.Sig.OrderAddressConflict,
+				// Populate behavioral signals and confidence source from the top pair.
+				if topPair != nil {
+					report.BehavioralSignals = &intelligence.BehavioralSignals{
+						OrderAddressExact:    topPair.Sig.OrderAddressExact,
+						OrderAddressPartial:  topPair.Sig.OrderAddressPartial,
+						OrderNameHigh:        topPair.Sig.OrderNameHigh,
+						RecentOrderOverlap:   topPair.Sig.RecentOrderOverlap,
+						OrderNameConflict:    topPair.Sig.OrderNameConflict,
+						OrderAddressConflict: topPair.Sig.OrderAddressConflict,
+					}
+					report.ConfidenceSource = topPair.ConfidenceSource
 				}
-				report.ConfidenceSource = topPair.ConfidenceSource
-			}
 
-			// Structural conflict detection — can override risk level.
-			cr := intelligence.DetectConflicts(members)
+				// Attach conflict data (already computed above).
 				report.Conflicts = cr.Conflicts
 				report.ConflictSeverity = cr.Severity
-				conflictSeverity = cr.Severity
 
 				// One-line confidence summary for the UI.
 				var breakdownReasons []intelligence.ReasonItem
@@ -211,9 +223,17 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 			conflictSeverity = pairwiseSev
 		}
 
+		// Compute adjusted severity for risk classification: filter out conflict
+		// types the merchant has opted out of as hard blockers. The raw
+		// conflictSeverity is still stored in the intelligence report for audit.
+		classifySeverity := adjustedConflictSeverity(
+			cr.Conflicts,
+			blockDisabledAccounts, blockFraudTags, blockDifferentCountry,
+		)
+
 		riskLevel := classifyRisk(riskInput{
 			confidence:         maxScore,
-			conflictSeverity:   conflictSeverity,
+			conflictSeverity:   classifySeverity,
 			weakestEdge:        weakestEdge,
 			density:            density,
 			hasAnchor:          hasAnchor,
@@ -621,4 +641,38 @@ func int64SliceToPQ(ids []int64) []int64 {
 	result := make([]int64, len(ids))
 	copy(result, ids)
 	return result
+}
+
+// adjustedConflictSeverity recomputes the highest conflict severity after
+// filtering out conflict types that the merchant has opted out of as hard
+// blockers. The raw conflicts are still stored in the intelligence report.
+//
+// This prevents a disabled_account or fraud-tag conflict from forcing
+// risk_level = "risky" when the merchant has explicitly turned off that guard.
+func adjustedConflictSeverity(conflicts []intelligence.ConflictItem, blockDisabledAccounts, blockFraudTags, blockDifferentCountry bool) string {
+	max := 0
+	for _, c := range conflicts {
+		if c.Type == "disabled_account" && !blockDisabledAccounts {
+			continue
+		}
+		if strings.HasPrefix(c.Type, "risk_tag:") && !blockFraudTags {
+			continue
+		}
+		if c.Type == "different_countries" && !blockDifferentCountry {
+			continue
+		}
+		if sev := sevRank(c.Severity); sev > max {
+			max = sev
+		}
+	}
+	switch max {
+	case 3:
+		return "high"
+	case 2:
+		return "medium"
+	case 1:
+		return "low"
+	default:
+		return ""
+	}
 }
