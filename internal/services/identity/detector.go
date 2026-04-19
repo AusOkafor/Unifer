@@ -68,14 +68,37 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 
 	d.log.Info().Int("count", len(customers)).Str("merchant", merchantID.String()).Msg("running detection")
 
-	// Load merchant's behavioral signals flag.
-	behavioralEnabled := false
+	// Load merchant signal settings. Defaults are the safe/conservative direction
+	// (all signals enabled, both risk guards active) so a DB miss never loosens scoring.
+	scoreOpts := ScoreOptions{
+		BehavioralEnabled: false,
+		SignalEmail:       true,
+		SignalPhone:       true,
+		SignalAddress:     true,
+		SignalName:        true,
+	}
+	weakLinkProtection := true
+	requireAnchor := true
 	if d.settingsRepo != nil {
 		if settings, err := d.settingsRepo.Get(ctx, merchantID); err == nil {
-			behavioralEnabled = settings.EnableBehavioralSignals
+			scoreOpts.BehavioralEnabled = settings.EnableBehavioralSignals
+			scoreOpts.SignalEmail = settings.SignalEmail
+			scoreOpts.SignalPhone = settings.SignalPhone
+			scoreOpts.SignalAddress = settings.SignalAddress
+			scoreOpts.SignalName = settings.SignalName
+			weakLinkProtection = settings.WeakLinkProtection
+			requireAnchor = settings.RequireAnchor
 		}
 	}
-	d.log.Info().Bool("behavioral_enabled", behavioralEnabled).Msg("detection: behavioral signals")
+	d.log.Info().
+		Bool("behavioral_enabled", scoreOpts.BehavioralEnabled).
+		Bool("signal_email", scoreOpts.SignalEmail).
+		Bool("signal_phone", scoreOpts.SignalPhone).
+		Bool("signal_address", scoreOpts.SignalAddress).
+		Bool("signal_name", scoreOpts.SignalName).
+		Bool("weak_link_protection", weakLinkProtection).
+		Bool("require_anchor", requireAnchor).
+		Msg("detection: signal settings")
 
 	// Clear stale pending groups before rebuilding — ensures merged/deleted
 	// customers don't produce ghost groups on re-scan.
@@ -98,7 +121,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		customers[i].Phone = utils.NormalizePhone(customers[i].Phone)
 	}
 
-	pairs := d.scorePairs(customers, behavioralEnabled)
+	pairs := d.scorePairs(customers, scoreOpts)
 	clusters := ClusterPairs(pairs, DefaultThreshold)
 
 	persisted := 0
@@ -189,13 +212,15 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 		}
 
 		riskLevel := classifyRisk(riskInput{
-			confidence:       maxScore,
-			conflictSeverity: conflictSeverity,
-			weakestEdge:      weakestEdge,
-			density:          density,
-			hasAnchor:        hasAnchor,
-			businessRisk:     br.Level,
-			impactScore:      br.ImpactScore,
+			confidence:         maxScore,
+			conflictSeverity:   conflictSeverity,
+			weakestEdge:        weakestEdge,
+			density:            density,
+			hasAnchor:          hasAnchor,
+			businessRisk:       br.Level,
+			impactScore:        br.ImpactScore,
+			weakLinkProtection: weakLinkProtection,
+			requireAnchor:      requireAnchor,
 		})
 
 		var businessRiskLevel *string
@@ -232,7 +257,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 //  3. Address hash bucketing (city+zip combination)
 //
 // A seen map deduplicates pairs found by multiple buckets.
-func (d *Detector) scorePairs(customers []models.CustomerCache, behavioralEnabled bool) []ScoredPair {
+func (d *Detector) scorePairs(customers []models.CustomerCache, opts ScoreOptions) []ScoredPair {
 	seen := make(map[[2]int64]struct{})
 	var pairs []ScoredPair
 
@@ -246,7 +271,7 @@ func (d *Detector) scorePairs(customers []models.CustomerCache, behavioralEnable
 			return
 		}
 		seen[key] = struct{}{}
-		s := ScorePair(a, b, behavioralEnabled)
+		s := ScorePair(a, b, opts)
 		d.log.Debug().
 			Int64("a", a.ShopifyCustomerID).
 			Int64("b", b.ShopifyCustomerID).
@@ -456,13 +481,15 @@ func topPairForCluster(pairs []ScoredPair, memberIDs []int64) *ScoredPair {
 // riskInput bundles all factors used to classify a cluster's risk level.
 // Using a struct keeps classifyRisk's signature stable as new factors are added.
 type riskInput struct {
-	confidence       float64
-	conflictSeverity string  // from intelligence.DetectConflicts + pairwise spread
-	weakestEdge      float64
-	density          float64
-	hasAnchor        bool
-	businessRisk     string  // from ComputeBusinessRisk: "high"|"medium"|"low"|""
-	impactScore      float64 // blast-radius: cluster_size × avg_customer_value
+	confidence          float64
+	conflictSeverity    string  // from intelligence.DetectConflicts + pairwise spread
+	weakestEdge         float64
+	density             float64
+	hasAnchor           bool
+	businessRisk        string  // from ComputeBusinessRisk: "high"|"medium"|"low"|""
+	impactScore         float64 // blast-radius: cluster_size × avg_customer_value
+	weakLinkProtection  bool    // when false, step 4 (weak interior edge) is skipped
+	requireAnchor       bool    // when false, step 6 (no identity anchor) is skipped
 }
 
 // classifyRisk maps cluster evidence to a risk level string.
@@ -506,8 +533,10 @@ func classifyRisk(in riskInput) string {
 	}
 
 	// 4. Weak interior edge — cluster may include an unrelated person.
+	// Skipped when the merchant has disabled weak_link_protection (they accept
+	// the risk of loosely-connected clusters being auto-merged as safe).
 	const weakEdgeFloor = 0.70
-	if in.weakestEdge < weakEdgeFloor {
+	if in.weakLinkProtection && in.weakestEdge < weakEdgeFloor {
 		if in.confidence >= 0.75 {
 			return "review"
 		}
@@ -527,7 +556,9 @@ func classifyRisk(in riskInput) string {
 	}
 
 	// 6. No strong anchor — cluster consists entirely of ghost-like records.
-	if !in.hasAnchor {
+	// Skipped when the merchant has disabled require_anchor (they are willing
+	// to auto-merge clusters that lack a verified identity anchor).
+	if in.requireAnchor && !in.hasAnchor {
 		if in.confidence >= 0.90 {
 			return "review"
 		}

@@ -1,6 +1,8 @@
 package merge
 
 import (
+	"strings"
+
 	"merger/backend/internal/models"
 	"merger/backend/internal/services/intelligence"
 )
@@ -12,6 +14,18 @@ type FieldSelection struct {
 	Phone   string `json:"phone"`
 	Address string `json:"address"`
 	Name    string `json:"name"`
+}
+
+// ConflictSettings carries the merchant's per-setting overrides into
+// the profile validator. Defaults (zero-value) are the safe/blocking direction.
+type ConflictSettings struct {
+	// OverrideDisabled bypasses the disabled_account hard block when the user
+	// has explicitly acknowledged the reactivation risk.
+	OverrideDisabled bool
+	// BlockFraudTags: when false, risk_tag conflicts are non-blocking.
+	BlockFraudTags bool
+	// BlockDifferentCountry: when false, different_countries conflicts are non-blocking.
+	BlockDifferentCountry bool
 }
 
 // ProfileValidationResult is returned by ValidateFinalProfile.
@@ -37,27 +51,41 @@ type ProfileValidationResult struct {
 }
 
 // ValidateFinalProfile checks the given customers for structural conflicts and
-// returns a split result. The FieldSelection parameter is recorded for context
-// but hard blockers are always determined by the raw customer data.
-//
-// overrideDisabled allows the caller to bypass the disabled_account block when
-// the user has explicitly acknowledged the risk. All other hard blocks (fraud
-// tags, different country, etc.) remain enforced regardless.
-func ValidateFinalProfile(customers []models.CustomerCache, _ FieldSelection, overrideDisabled bool) ProfileValidationResult {
+// returns a split result. Settings controls which conflict types are treated as
+// hard blocks vs. allowed.
+func ValidateFinalProfile(customers []models.CustomerCache, _ FieldSelection, s ConflictSettings) ProfileValidationResult {
 	result := intelligence.DetectConflicts(customers)
 
 	var blocking, resolvable []intelligence.ConflictItem
 	for _, c := range result.Conflicts {
 		isHardBlock := c.Blocking && !c.Resolvable
-		// disabled_account is overridable when the user has explicitly acknowledged it.
-		if isHardBlock && c.Type == "disabled_account" && overrideDisabled {
+
+		// disabled_account is overridable when the user explicitly acknowledged it,
+		// or when the merchant has turned off the block_disabled_accounts guard.
+		if isHardBlock && c.Type == "disabled_account" && s.OverrideDisabled {
 			isHardBlock = false
 		}
+		// Fraud/risk tags: respect the block_fraud_tags setting.
+		if isHardBlock && strings.HasPrefix(c.Type, "risk_tag:") && !s.BlockFraudTags {
+			isHardBlock = false
+		}
+		// Country mismatch: respect the block_different_country setting.
+		if isHardBlock && c.Type == "different_countries" && !s.BlockDifferentCountry {
+			isHardBlock = false
+		}
+
 		if isHardBlock {
 			blocking = append(blocking, c)
 		} else {
 			resolvable = append(resolvable, c)
 		}
+	}
+
+	if blocking == nil {
+		blocking = []intelligence.ConflictItem{}
+	}
+	if resolvable == nil {
+		resolvable = []intelligence.ConflictItem{}
 	}
 
 	return ProfileValidationResult{

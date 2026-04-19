@@ -186,15 +186,20 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 		return
 	}
 
-	// Dispatch a duplicate detection job only if auto-detection is enabled
-	// in merchant settings (default: true if settings not yet saved).
+	// Dispatch a duplicate detection job only when:
+	//   1. auto_detect is enabled (master switch)
+	//   2. scan_frequency is "webhook" (not "daily" or "manual")
 	autoDetect := true
+	scanFrequency := "webhook"
 	if h.settingsRepo != nil {
 		if s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
 			autoDetect = s.AutoDetect
+			if s.ScanFrequency != "" {
+				scanFrequency = s.ScanFrequency
+			}
 		}
 	}
-	if autoDetect && h.jobDispatcher != nil {
+	if autoDetect && scanFrequency == "webhook" && h.jobDispatcher != nil {
 		if _, err := h.jobDispatcher.Dispatch(
 			c.Request.Context(),
 			models.JobTypeDetectDuplicates,

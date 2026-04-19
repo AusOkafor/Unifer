@@ -138,6 +138,9 @@ func (f *fakeDuplicateRepo) TryTransitionToMerged(_ context.Context, _ uuid.UUID
 	return true, nil
 }
 func (f *fakeDuplicateRepo) DismissGroup(_ context.Context, _ uuid.UUID, _ string) error { return nil }
+func (f *fakeDuplicateRepo) ListGroupsByRiskLevels(_ context.Context, _ uuid.UUID, _ []string) ([]models.DuplicateGroup, error) {
+	return nil, nil
+}
 func (f *fakeDuplicateRepo) MarkConfirmedByUser(_ context.Context, _ uuid.UUID, _ bool) error {
 	return nil
 }

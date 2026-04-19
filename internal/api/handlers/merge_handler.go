@@ -226,10 +226,14 @@ func (h *MergeHandler) BulkPreview(c *gin.Context) {
 		}
 	}
 
-	groups, err := h.duplicateRepo.ListSafeGroups(c.Request.Context(), merchant.ID)
+	riskPolicy := "safe_only"
+	if s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil && s.RiskPolicy != "" {
+		riskPolicy = s.RiskPolicy
+	}
+	groups, err := h.duplicateRepo.ListGroupsByRiskLevels(c.Request.Context(), merchant.ID, riskLevelsForPolicy(riskPolicy))
 	if err != nil {
-		h.log.Error().Err(err).Msg("bulk preview: list safe groups")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load safe groups"})
+		h.log.Error().Err(err).Msg("bulk preview: list groups")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load groups"})
 		return
 	}
 
@@ -274,8 +278,18 @@ func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 		}
 	}
 
-	// Batch size control — prevents rate limit spikes and queue congestion.
+	// Load settings to get bulk batch size and risk policy.
 	batchSize := 10
+	riskPolicy := "safe_only"
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if settings.BulkMaxBatch > 0 {
+			batchSize = settings.BulkMaxBatch
+		}
+		if settings.RiskPolicy != "" {
+			riskPolicy = settings.RiskPolicy
+		}
+	}
+	// ?limit= query param overrides settings (for testing/pagination).
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
 		if l > 50 {
 			l = 50
@@ -283,7 +297,8 @@ func (h *MergeHandler) SafeBulkMerge(c *gin.Context) {
 		batchSize = l
 	}
 
-	groups, err := h.duplicateRepo.ListSafeGroups(c.Request.Context(), merchant.ID)
+	riskLevels := riskLevelsForPolicy(riskPolicy)
+	groups, err := h.duplicateRepo.ListGroupsByRiskLevels(c.Request.Context(), merchant.ID, riskLevels)
 	if err != nil {
 		h.log.Error().Err(err).Msg("safe bulk merge: list safe groups")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load safe groups"})
@@ -377,14 +392,19 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		return
 	}
 
-	// Respect the merchant's block_disabled_accounts setting.
-	// When the merchant has turned that guard off, treat disabled_account as
-	// non-blocking automatically — no manual override checkbox needed.
-	overrideDisabled := req.OverrideDisabled
+	// Build conflict settings from merchant preferences.
+	// Defaults (block everything) apply when settings can't be loaded.
+	cs := mergesvc.ConflictSettings{
+		OverrideDisabled:      req.OverrideDisabled,
+		BlockFraudTags:        true,
+		BlockDifferentCountry: true,
+	}
 	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
 		if !settings.BlockDisabledAccounts {
-			overrideDisabled = true
+			cs.OverrideDisabled = true
 		}
+		cs.BlockFraudTags = settings.BlockFraudTags
+		cs.BlockDifferentCountry = settings.BlockDifferentCountry
 	}
 
 	sel := mergesvc.FieldSelection{
@@ -393,7 +413,7 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		Address: req.Selection.Address,
 		Name:    req.Selection.Name,
 	}
-	result := mergesvc.ValidateFinalProfile(customers, sel, overrideDisabled)
+	result := mergesvc.ValidateFinalProfile(customers, sel, cs)
 
 	// Ensure JSON arrays are never null.
 	if result.BlockingConflicts == nil {
@@ -409,4 +429,17 @@ func (h *MergeHandler) ValidateProfile(c *gin.Context) {
 		ResolvableConflicts:  result.ResolvableConflicts,
 		IsReadyToMerge:      result.IsReadyToMerge,
 	})
+}
+
+// riskLevelsForPolicy maps a risk_policy setting to the risk_level values
+// that are eligible for bulk merge operations.
+//
+//   - safe_only    → ["safe"]          (default / most conservative)
+//   - allow_review → ["safe","review"] (review groups included)
+//   - block_risky  → ["safe"]          (same as safe_only for bulk; risky groups are never auto-merged)
+func riskLevelsForPolicy(policy string) []string {
+	if policy == "allow_review" {
+		return []string{"safe", "review"}
+	}
+	return []string{"safe"}
 }

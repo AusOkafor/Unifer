@@ -75,11 +75,35 @@ type Signals struct {
 	OrderAddressConflict bool // order addresses from different countries
 }
 
+// ScoreOptions controls which identity signals contribute to scoring.
+// Zero-value (all false) disables every signal — callers should use the
+// merchant's settings or DefaultScoreOptions() to build a non-zero value.
+type ScoreOptions struct {
+	BehavioralEnabled bool
+	SignalEmail       bool
+	SignalPhone       bool
+	SignalAddress     bool
+	SignalName        bool
+}
+
+// DefaultScoreOptions returns an ScoreOptions with all signals enabled and
+// behavioral scoring disabled — equivalent to the old ScorePair(a, b, false) call.
+func DefaultScoreOptions() ScoreOptions {
+	return ScoreOptions{
+		BehavioralEnabled: false,
+		SignalEmail:       true,
+		SignalPhone:       true,
+		SignalAddress:     true,
+		SignalName:        true,
+	}
+}
+
 // ScorePair computes a pairwise Score between two cached customers.
 // Per-field sims are continuous values for the UI breakdown.
 // Combined is produced by the rule-based confidence engine.
-// behavioralEnabled gates order-derived early-return rules.
-func ScorePair(a, b *models.CustomerCache, behavioralEnabled bool) Score {
+// opts.BehavioralEnabled gates order-derived early-return rules;
+// opts.Signal* fields allow merchants to disable individual signal channels.
+func ScorePair(a, b *models.CustomerCache, opts ScoreOptions) Score {
 	s := Score{}
 
 	emailA := utils.NormalizeEmail(a.Email)
@@ -102,9 +126,42 @@ func ScorePair(a, b *models.CustomerCache, behavioralEnabled bool) Score {
 
 	s.AddressSim = addressSimilarity(a, b)
 
-	// Extract discrete signals, then compute rule-based confidence.
+	// Extract discrete signals, then apply per-channel enable/disable settings.
 	s.Sig = extractSignals(emailA, emailB, phoneA, phoneB, nameA, nameB, s.NameSim, s.AddressSim, a, b)
-	s.Combined, s.ConfidenceSource = computeConfidence(s.Sig, s.EmailSim, s.NameSim, s.PhoneSim, s.AddressSim, behavioralEnabled)
+
+	if !opts.SignalEmail {
+		s.EmailSim = 0
+		s.Sig.EmailExact = false
+		s.Sig.EmailLocalExact = false
+		s.Sig.EmailLocalFuzzy = false
+		s.Sig.EmailDomainMatch = false
+		s.Sig.DifferentEmailDomain = false
+	}
+	if !opts.SignalPhone {
+		s.PhoneSim = 0
+		s.Sig.PhoneExact = false
+		s.Sig.PhoneSuffix = false
+		s.Sig.PhoneAsymmetry = false
+	}
+	if !opts.SignalAddress {
+		s.AddressSim = 0
+		s.Sig.AddressExact = false
+		s.Sig.AddressPartial = false
+		s.Sig.OrderAddressExact = false
+		s.Sig.OrderAddressPartial = false
+		s.Sig.OrderAddressConflict = false
+	}
+	if !opts.SignalName {
+		s.NameSim = 0
+		s.Sig.NameHigh = false
+		s.Sig.NameMedium = false
+		s.Sig.NameSim = 0
+		s.Sig.DifferentLastName = false
+		s.Sig.OrderNameHigh = false
+		s.Sig.OrderNameConflict = false
+	}
+
+	s.Combined, s.ConfidenceSource = computeConfidence(s.Sig, s.EmailSim, s.NameSim, s.PhoneSim, s.AddressSim, opts.BehavioralEnabled)
 
 	return s
 }

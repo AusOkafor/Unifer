@@ -16,6 +16,8 @@ type DuplicateRepository interface {
 	ListByMerchant(ctx context.Context, merchantID uuid.UUID, status string, minConfidence float64, limit, offset int) ([]models.DuplicateGroup, int, error)
 	// ListSafeGroups returns all pending groups classified as 'safe' for the given merchant.
 	ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error)
+	// ListGroupsByRiskLevels returns all pending groups whose risk_level is in the given list.
+	ListGroupsByRiskLevels(ctx context.Context, merchantID uuid.UUID, riskLevels []string) ([]models.DuplicateGroup, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	// TryTransitionToMerged sets status=merged only when not already merged.
@@ -130,6 +132,27 @@ func (r *duplicateRepo) ListSafeGroups(ctx context.Context, merchantID uuid.UUID
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list safe groups: %w", err)
+	}
+	return groups, nil
+}
+
+func (r *duplicateRepo) ListGroupsByRiskLevels(ctx context.Context, merchantID uuid.UUID, riskLevels []string) ([]models.DuplicateGroup, error) {
+	if len(riskLevels) == 0 {
+		return nil, nil
+	}
+	query, args, err := sqlx.In(
+		`SELECT * FROM duplicate_groups
+		 WHERE merchant_id = ? AND risk_level IN (?) AND status = 'pending'
+		 ORDER BY confidence_score DESC`,
+		merchantID, riskLevels,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list groups by risk levels: build query: %w", err)
+	}
+	query = r.db.Rebind(query)
+	var groups []models.DuplicateGroup
+	if err := r.db.SelectContext(ctx, &groups, query, args...); err != nil {
+		return nil, fmt.Errorf("list groups by risk levels: %w", err)
 	}
 	return groups, nil
 }
