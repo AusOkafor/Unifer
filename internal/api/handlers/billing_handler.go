@@ -15,18 +15,20 @@ import (
 )
 
 type BillingHandler struct {
-	settingsRepo repository.SettingsRepository
-	merchantRepo repository.MerchantRepository
-	encryptor    *utils.Encryptor
-	appURL       string // e.g. https://identity-manager-4ew0.onrender.com
-	apiKey       string // Shopify API key — used to redirect back into the admin
-	isTest       bool   // when true, subscriptions are created in test mode
-	log          zerolog.Logger
+	settingsRepo      repository.SettingsRepository
+	merchantRepo      repository.MerchantRepository
+	customerCacheRepo repository.CustomerCacheRepository
+	encryptor         *utils.Encryptor
+	appURL            string // e.g. https://identity-manager-4ew0.onrender.com
+	apiKey            string // Shopify API key — used to redirect back into the admin
+	isTest            bool   // when true, subscriptions are created in test mode
+	log               zerolog.Logger
 }
 
 func NewBillingHandler(
 	settingsRepo repository.SettingsRepository,
 	merchantRepo repository.MerchantRepository,
+	customerCacheRepo repository.CustomerCacheRepository,
 	encryptor *utils.Encryptor,
 	appURL string,
 	apiKey string,
@@ -34,13 +36,14 @@ func NewBillingHandler(
 	log zerolog.Logger,
 ) *BillingHandler {
 	return &BillingHandler{
-		settingsRepo: settingsRepo,
-		merchantRepo: merchantRepo,
-		encryptor:    encryptor,
-		appURL:       appURL,
-		apiKey:       apiKey,
-		isTest:       isTest,
-		log:          log,
+		settingsRepo:      settingsRepo,
+		merchantRepo:      merchantRepo,
+		customerCacheRepo: customerCacheRepo,
+		encryptor:         encryptor,
+		appURL:            appURL,
+		apiKey:            apiKey,
+		isTest:            isTest,
+		log:               log,
 	}
 }
 
@@ -188,6 +191,9 @@ func (h *BillingHandler) Plans(c *gin.Context) {
 func (h *BillingHandler) CurrentPlan(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
 
+	// Count is a fast indexed query — non-fatal if it fails.
+	totalCustomers, _ := h.customerCacheRepo.CountByMerchant(c.Request.Context(), merchant.ID)
+
 	s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -195,6 +201,7 @@ func (h *BillingHandler) CurrentPlan(c *gin.Context) {
 			"merges_this_month": 0,
 			"merge_limit":       billingpkg.MergeLimitFree,
 			"customer_limit":    billingpkg.CustomerLimitFree,
+			"total_customers":   totalCustomers,
 		})
 		return
 	}
@@ -204,6 +211,7 @@ func (h *BillingHandler) CurrentPlan(c *gin.Context) {
 		"merges_this_month": s.MergesThisMonth,
 		"merge_limit":       billingpkg.MergeLimit(s.Plan),
 		"customer_limit":    billingpkg.CustomerLimit(s.Plan),
+		"total_customers":   totalCustomers,
 		"features": gin.H{
 			billingpkg.FeatureOrderIntelligence: billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureOrderIntelligence),
 			billingpkg.FeatureMergeHistory:      billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureMergeHistory),

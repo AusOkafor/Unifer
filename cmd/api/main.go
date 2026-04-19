@@ -110,7 +110,7 @@ func main() {
 	h := &server.Handlers{
 		Auth: handlers.NewAuthHandler(oauthCfg, merchantRepo, encryptor, cfg.ShopifyAPIKey, log),
 		Billing: handlers.NewBillingHandler(
-			settingsRepo, merchantRepo, encryptor,
+			settingsRepo, merchantRepo, customerCacheRepo, encryptor,
 			cfg.AppURL, cfg.ShopifyAPIKey,
 			cfg.Environment != "production", // test mode outside production
 			log,

@@ -164,6 +164,7 @@ func (f *fakeCacheRepo) UpdateOrderStats(_ context.Context, _ uuid.UUID, _ int64
 func (f *fakeCacheRepo) DeleteStaleEntries(_ context.Context, _ uuid.UUID, _ []int64) (int64, error) {
 	return 0, nil
 }
+func (f *fakeCacheRepo) CountByMerchant(_ context.Context, _ uuid.UUID) (int, error) { return 0, nil }
 
 // fakeMerchantRepo returns a preset merchant for FindByID.
 type fakeMerchantRepo struct{ merchant *models.Merchant }

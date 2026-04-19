@@ -27,6 +27,9 @@ type CustomerCacheRepository interface {
 	// Shopify ID is NOT in the provided set — used after a full sync to purge
 	// customers that were merged or deleted in Shopify.
 	DeleteStaleEntries(ctx context.Context, merchantID uuid.UUID, activeShopifyIDs []int64) (int64, error)
+	// CountByMerchant returns the number of customers currently in the cache for
+	// the merchant — used by /api/billing/current to show live usage.
+	CountByMerchant(ctx context.Context, merchantID uuid.UUID) (int, error)
 }
 
 type customerCacheRepo struct {
@@ -158,4 +161,16 @@ func (r *customerCacheRepo) DeleteStaleEntries(ctx context.Context, merchantID u
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+func (r *customerCacheRepo) CountByMerchant(ctx context.Context, merchantID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count,
+		`SELECT COUNT(*) FROM customer_cache WHERE merchant_id = $1`,
+		merchantID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("customer cache count: %w", err)
+	}
+	return count, nil
 }
