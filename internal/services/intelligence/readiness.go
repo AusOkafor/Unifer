@@ -43,12 +43,14 @@ func scoreReadiness(customers []models.CustomerCache, primaryID int64) (score fl
 		if c.Email == "" {
 			penalties += penaltyMissingEmail
 			riskFlags = append(riskFlags, label+" is missing an email address")
+			reasoning = append(reasoning, fmt.Sprintf("−%.0f pts: %s has no email address", penaltyMissingEmail, label))
 		} else {
 			reasoning = append(reasoning, label+" has a verified email address")
 		}
 
 		if c.Phone == "" {
 			penalties += penaltyMissingPhone
+			reasoning = append(reasoning, fmt.Sprintf("−%.0f pts: %s has no phone number", penaltyMissingPhone, label))
 		} else {
 			reasoning = append(reasoning, label+" has a phone number on record")
 		}
@@ -62,10 +64,12 @@ func scoreReadiness(customers []models.CustomerCache, primaryID int64) (score fl
 			if matchesAny(tag, subscriptionTagKeywords) {
 				penalties += penaltySubscriptionTag
 				riskFlags = append(riskFlags, label+` has active subscription tag "`+raw+`"`)
+				reasoning = append(reasoning, fmt.Sprintf("−%.0f pts: %s has active subscription tag \"%s\"", penaltySubscriptionTag, label, raw))
 			}
 			if matchesAny(tag, riskTagKeywords) {
 				penalties += penaltyRiskTag
 				riskFlags = append(riskFlags, label+` has risk tag "`+raw+`"`)
+				reasoning = append(reasoning, fmt.Sprintf("−%.0f pts: %s has risk tag \"%s\"", penaltyRiskTag, label, raw))
 			}
 		}
 	}
@@ -77,6 +81,7 @@ func scoreReadiness(customers []models.CustomerCache, primaryID int64) (score fl
 	if len(unique(phones)) > 1 {
 		penalties += penaltyPhoneMismatch
 		riskFlags = append(riskFlags, "phone numbers differ between customers")
+		reasoning = append(reasoning, fmt.Sprintf("−%.0f pts: phone numbers differ between customers", penaltyPhoneMismatch))
 	}
 
 	// --- Positive signals ---
