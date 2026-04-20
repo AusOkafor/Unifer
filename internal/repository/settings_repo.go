@@ -58,7 +58,7 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 		INSERT INTO merchant_settings (
 			merchant_id, auto_detect, confidence_threshold, retention_days,
 			notifications_enabled,
-			scan_frequency, signal_email, signal_phone, signal_address, signal_name,
+			scan_frequency, scan_hour, signal_email, signal_phone, signal_address, signal_name,
 			risk_policy, require_anchor, weak_link_protection,
 			block_different_country, block_fraud_tags, block_disabled_accounts,
 			bulk_max_batch, bulk_delay_ms, bulk_require_preview,
@@ -67,7 +67,7 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 		) VALUES (
 			:merchant_id, :auto_detect, :confidence_threshold, :retention_days,
 			:notifications_enabled,
-			:scan_frequency, :signal_email, :signal_phone, :signal_address, :signal_name,
+			:scan_frequency, :scan_hour, :signal_email, :signal_phone, :signal_address, :signal_name,
 			:risk_policy, :require_anchor, :weak_link_protection,
 			:block_different_country, :block_fraud_tags, :block_disabled_accounts,
 			:bulk_max_batch, :bulk_delay_ms, :bulk_require_preview,
@@ -80,6 +80,7 @@ func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) e
 			retention_days         = EXCLUDED.retention_days,
 			notifications_enabled  = EXCLUDED.notifications_enabled,
 			scan_frequency         = EXCLUDED.scan_frequency,
+			scan_hour              = EXCLUDED.scan_hour,
 			signal_email           = EXCLUDED.signal_email,
 			signal_phone           = EXCLUDED.signal_phone,
 			signal_address         = EXCLUDED.signal_address,

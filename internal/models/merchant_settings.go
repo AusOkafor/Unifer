@@ -20,6 +20,7 @@ type MerchantSettings struct {
 
 	// Detection
 	ScanFrequency string `db:"scan_frequency"` // webhook | daily | manual
+	ScanHour      int    `db:"scan_hour"`       // 0–23 UTC, only used when scan_frequency = "daily"
 	SignalEmail   bool   `db:"signal_email"`
 	SignalPhone   bool   `db:"signal_phone"`
 	SignalAddress bool   `db:"signal_address"`
@@ -62,6 +63,7 @@ func DefaultSettings(merchantID uuid.UUID) *MerchantSettings {
 		RetentionDays:         90,
 		NotificationsEnabled:  true,
 		ScanFrequency:         "webhook",
+		ScanHour:              3,
 		SignalEmail:           true,
 		SignalPhone:           true,
 		SignalAddress:         true,
