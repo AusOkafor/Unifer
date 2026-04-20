@@ -32,7 +32,12 @@ api_version = "2025-10"
   topics = ["app/uninstalled"]
   uri = "/api/webhooks/shopify"
 
-# NOTE: GDPR compliance webhooks (customers/data_request, customers/redact,
-# shop/redact) CANNOT be registered via TOML. You must register them manually
-# in Partner Dashboard → App setup → Compliance webhooks, pointing to:
-#   https://identity-manager-4ew0.onrender.com/api/webhooks/shopify
+# GDPR / privacy-compliance webhooks.
+# For apps using shopify.app.toml the Partner Dashboard no longer shows a
+# manual GDPR section — these must be declared here and pushed via
+# `shopify app deploy`. All three topics are handled by the same endpoint;
+# the handler dispatches on the X-Shopify-Topic header.
+[webhooks.privacy_compliance]
+  customer_deletion_url    = "https://identity-manager-4ew0.onrender.com/api/webhooks/shopify"
+  customer_data_request_url = "https://identity-manager-4ew0.onrender.com/api/webhooks/shopify"
+  shop_deletion_url        = "https://identity-manager-4ew0.onrender.com/api/webhooks/shopify"
