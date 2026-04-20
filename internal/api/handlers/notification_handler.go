@@ -74,6 +74,26 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
+// Delete removes a single notification.
+// DELETE /api/notifications/:id
+func (h *NotificationHandler) Delete(c *gin.Context) {
+	merchant := middleware.GetMerchant(c)
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notification id"})
+		return
+	}
+
+	if err := h.notifRepo.Delete(c.Request.Context(), id, merchant.ID); err != nil {
+		h.log.Error().Err(err).Str("id", id.String()).Msg("notification delete")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete notification"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{})
+}
+
 // MarkAllRead marks all of this merchant's unread notifications as read.
 // POST /api/notifications/read-all
 func (h *NotificationHandler) MarkAllRead(c *gin.Context) {

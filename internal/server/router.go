@@ -164,10 +164,12 @@ func (s *Server) registerRoutes() {
 		api.GET("/notifications", s.h.Notification.List)
 		api.POST("/notifications/read-all", s.h.Notification.MarkAllRead)
 		api.PATCH("/notifications/:id/read", s.h.Notification.MarkRead)
+		api.DELETE("/notifications/:id", s.h.Notification.Delete)
 	} else {
 		api.GET("/notifications", s.stub("notifications: list"))
 		api.POST("/notifications/read-all", s.stub("notifications: read-all"))
 		api.PATCH("/notifications/:id/read", s.stub("notifications: mark-read"))
+		api.DELETE("/notifications/:id", s.stub("notifications: delete"))
 	}
 }
 

@@ -16,6 +16,8 @@ type NotificationRepository interface {
 	UnreadCount(ctx context.Context, merchantID uuid.UUID) (int, error)
 	MarkRead(ctx context.Context, id uuid.UUID, merchantID uuid.UUID) error
 	MarkAllRead(ctx context.Context, merchantID uuid.UUID) error
+	// Delete removes a single notification for the given merchant.
+	Delete(ctx context.Context, id uuid.UUID, merchantID uuid.UUID) error
 	// DeleteOld removes notifications older than 30 days to keep the table lean.
 	DeleteOld(ctx context.Context) error
 }
@@ -86,6 +88,17 @@ func (r *notificationRepo) MarkAllRead(ctx context.Context, merchantID uuid.UUID
 	)
 	if err != nil {
 		return fmt.Errorf("notification mark all read: %w", err)
+	}
+	return nil
+}
+
+func (r *notificationRepo) Delete(ctx context.Context, id uuid.UUID, merchantID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM notifications WHERE id = $1 AND merchant_id = $2`,
+		id, merchantID,
+	)
+	if err != nil {
+		return fmt.Errorf("notification delete: %w", err)
 	}
 	return nil
 }
