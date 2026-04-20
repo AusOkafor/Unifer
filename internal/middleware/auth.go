@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -36,7 +37,7 @@ func AuthRequired(shopifyAPISecret, shopifyAPIKey string, merchantRepo repositor
 				return nil, jwt.ErrSignatureInvalid
 			}
 			return secret, nil
-		})
+		}, jwt.WithLeeway(30*time.Second))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
