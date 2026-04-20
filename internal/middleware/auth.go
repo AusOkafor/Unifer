@@ -23,7 +23,7 @@ const merchantContextKey = "merchant"
 //
 // Tokens are expected in the Authorization: Bearer header (sent by the
 // frontend's apiFetch wrapper via App Bridge getSessionToken).
-func AuthRequired(shopifyAPISecret, shopifyAPIKey string, merchantRepo repository.MerchantRepository) gin.HandlerFunc {
+func AuthRequired(shopifyAPISecret, shopifyAPIKey string, merchantRepo repository.MerchantRepository, log zerolog.Logger) gin.HandlerFunc {
 	secret := []byte(shopifyAPISecret)
 	return func(c *gin.Context) {
 		tokenStr := extractToken(c)
@@ -40,8 +40,7 @@ func AuthRequired(shopifyAPISecret, shopifyAPIKey string, merchantRepo repositor
 			return secret, nil
 		}, jwt.WithLeeway(30*time.Second))
 		if err != nil {
-			log := zerolog.Ctx(c.Request.Context())
-			log.Warn().Err(err).Msg("auth: JWT parse failed")
+			log.Warn().Err(err).Str("token_prefix", tokenStr[:min(len(tokenStr), 20)]).Msg("auth: JWT parse failed")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
@@ -90,6 +89,13 @@ func GetMerchant(c *gin.Context) *models.Merchant {
 	}
 	m, _ := val.(*models.Merchant)
 	return m
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func extractToken(c *gin.Context) string {

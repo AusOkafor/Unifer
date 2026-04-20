@@ -29,6 +29,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -94,7 +95,7 @@ func makeShopifyToken(shop, apiKey, secret string, exp time.Time) string {
 func newTestRouter(repo repository.MerchantRepository) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(middleware.AuthRequired(testAPISecret, testAPIKey, repo))
+	r.Use(middleware.AuthRequired(testAPISecret, testAPIKey, repo, zerolog.Nop()))
 	r.GET("/protected", func(c *gin.Context) {
 		m := middleware.GetMerchant(c)
 		c.JSON(http.StatusOK, gin.H{"shop": m.ShopDomain})
