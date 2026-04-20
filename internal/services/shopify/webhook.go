@@ -44,7 +44,7 @@ type webhookListResponse struct {
 // registered separately in the Partner Dashboard and are handled by the same
 // endpoint — they cannot be registered via the REST API.
 //
-// Note: customers/merge is not a real Shopify webhook topic (as of 2025-01);
+// Note: customers/merge is not a real Shopify webhook topic (as of 2025-10);
 // Shopify does not broadcast merge events via webhooks.
 var RequiredTopics = []string{
 	"customers/create",

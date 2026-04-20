@@ -14,8 +14,12 @@ import (
 	"strings"
 )
 
+// DefaultScopes are the OAuth scopes requested during app installation.
+// - read_customers / write_customers: cache sync, GDPR redact
+// - write_customer_merge: required by the customerMerge GraphQL mutation
+// - read_orders: required to receive orders/create and orders/updated webhooks
 const (
-	DefaultScopes = "read_customers,write_customers,write_customer_merge,read_orders,write_orders"
+	DefaultScopes = "read_customers,write_customers,write_customer_merge,read_orders"
 )
 
 type OAuthConfig struct {

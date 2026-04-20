@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	apiVersion    = "2025-01"
+	apiVersion    = "2025-10"
 	rateLimitWarn = 38 // warn and slow down if call count reaches this (max is typically 40)
 )
 

@@ -7,7 +7,10 @@ application_url = "https://identity-manager-4ew0.onrender.com"
 embedded = true
 
 [access_scopes]
-scopes = "read_customers,write_customers,read_orders"
+# write_customer_merge is required by the customerMerge GraphQL mutation.
+# read_orders is required to receive orders/create and orders/updated webhooks.
+# write_orders is NOT needed — the app never calls Shopify's write-orders API.
+scopes = "read_customers,write_customers,write_customer_merge,read_orders"
 
 [auth]
 redirect_urls = [
@@ -15,7 +18,7 @@ redirect_urls = [
 ]
 
 [webhooks]
-api_version = "2024-01"
+api_version = "2025-10"
 
   [[webhooks.subscriptions]]
   topics = ["customers/create", "customers/update", "customers/delete"]
