@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,10 +38,19 @@ func (r *settingsRepo) Get(ctx context.Context, merchantID uuid.UUID) (*models.M
 		`SELECT * FROM merchant_settings WHERE merchant_id = $1`,
 		merchantID,
 	)
-	if err != nil {
+	if err == nil {
+		return &s, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("settings get: %w", err)
 	}
-	return &s, nil
+
+	// No settings row yet — create defaults and return them.
+	defaults := models.DefaultSettings(merchantID)
+	if upsertErr := r.Upsert(ctx, defaults); upsertErr != nil {
+		return nil, fmt.Errorf("settings get: auto-create defaults: %w", upsertErr)
+	}
+	return defaults, nil
 }
 
 func (r *settingsRepo) Upsert(ctx context.Context, s *models.MerchantSettings) error {
