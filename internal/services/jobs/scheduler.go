@@ -20,6 +20,7 @@ import (
 type Scheduler struct {
 	merchantRepo repository.MerchantRepository
 	settingsRepo repository.SettingsRepository
+	notifRepo    repository.NotificationRepository
 	dispatcher   *Dispatcher
 	log          zerolog.Logger
 }
@@ -27,12 +28,14 @@ type Scheduler struct {
 func NewScheduler(
 	merchantRepo repository.MerchantRepository,
 	settingsRepo repository.SettingsRepository,
+	notifRepo repository.NotificationRepository,
 	dispatcher *Dispatcher,
 	log zerolog.Logger,
 ) *Scheduler {
 	return &Scheduler{
 		merchantRepo: merchantRepo,
 		settingsRepo: settingsRepo,
+		notifRepo:    notifRepo,
 		dispatcher:   dispatcher,
 		log:          log,
 	}
@@ -117,6 +120,15 @@ func (s *Scheduler) runDailyScan(ctx context.Context) {
 func (s *Scheduler) scheduledRun(ctx context.Context) {
 	currentHour := time.Now().UTC().Hour()
 	s.log.Info().Int("hour_utc", currentHour).Msg("daily scheduler: starting")
+
+	// At midnight UTC, purge notifications older than 30 days.
+	if currentHour == 0 {
+		if err := s.notifRepo.DeleteOld(ctx); err != nil {
+			s.log.Warn().Err(err).Msg("daily scheduler: notification cleanup failed")
+		} else {
+			s.log.Info().Msg("daily scheduler: old notifications purged")
+		}
+	}
 
 	merchants, err := s.merchantRepo.ListAll(ctx)
 	if err != nil {

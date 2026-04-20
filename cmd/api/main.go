@@ -108,7 +108,7 @@ func main() {
 	notificationSvc := notifsvc.NewService(notifRepo, settingsRepo, sqlDB, log)
 	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, notificationSvc, log)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)
-	scheduler := jobs.NewScheduler(merchantRepo, settingsRepo, dispatcher, log)
+	scheduler := jobs.NewScheduler(merchantRepo, settingsRepo, notifRepo, dispatcher, log)
 
 	// --- Handlers ---
 	h := &server.Handlers{
