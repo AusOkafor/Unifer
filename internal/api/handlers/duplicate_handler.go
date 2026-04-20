@@ -131,14 +131,9 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 		return
 	}
 
-	group, err := h.duplicateRepo.FindByID(c.Request.Context(), id)
+	group, err := h.duplicateRepo.FindByID(c.Request.Context(), id, merchant.ID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "duplicate group not found"})
-		return
-	}
-
-	if group.MerchantID != merchant.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 
@@ -219,14 +214,8 @@ func (h *DuplicateHandler) Dismiss(c *gin.Context) {
 		return
 	}
 
-	group, err := h.duplicateRepo.FindByID(c.Request.Context(), id)
-	if err != nil {
+	if _, err := h.duplicateRepo.FindByID(c.Request.Context(), id, merchant.ID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "duplicate group not found"})
-		return
-	}
-
-	if group.MerchantID != merchant.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 

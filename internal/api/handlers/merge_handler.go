@@ -84,7 +84,7 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		return
 	}
 
-	g, err := h.duplicateRepo.FindByID(c.Request.Context(), groupUUID)
+	g, err := h.duplicateRepo.FindByID(c.Request.Context(), groupUUID, merchant.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "duplicate group not found"})
@@ -92,10 +92,6 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		}
 		h.log.Error().Err(err).Msg("merge execute: load duplicate group")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load duplicate group"})
-		return
-	}
-	if g.MerchantID != merchant.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 	if g.Status == "merged" {

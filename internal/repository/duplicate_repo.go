@@ -18,7 +18,7 @@ type DuplicateRepository interface {
 	ListSafeGroups(ctx context.Context, merchantID uuid.UUID) ([]models.DuplicateGroup, error)
 	// ListGroupsByRiskLevels returns all pending groups whose risk_level is in the given list.
 	ListGroupsByRiskLevels(ctx context.Context, merchantID uuid.UUID, riskLevels []string) ([]models.DuplicateGroup, error)
-	FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error)
+	FindByID(ctx context.Context, id uuid.UUID, merchantID uuid.UUID) (*models.DuplicateGroup, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	// TryTransitionToMerged sets status=merged only when not already merged.
 	// Returns ok=false when another process already merged the row (no rows updated).
@@ -157,9 +157,9 @@ func (r *duplicateRepo) ListGroupsByRiskLevels(ctx context.Context, merchantID u
 	return groups, nil
 }
 
-func (r *duplicateRepo) FindByID(ctx context.Context, id uuid.UUID) (*models.DuplicateGroup, error) {
+func (r *duplicateRepo) FindByID(ctx context.Context, id uuid.UUID, merchantID uuid.UUID) (*models.DuplicateGroup, error) {
 	var g models.DuplicateGroup
-	err := r.db.GetContext(ctx, &g, `SELECT * FROM duplicate_groups WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &g, `SELECT * FROM duplicate_groups WHERE id = $1 AND merchant_id = $2`, id, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("duplicate group find: %w", err)
 	}

@@ -72,7 +72,36 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 	}
 
 	sig := c.GetHeader("X-Shopify-Hmac-SHA256")
-	if !shopifyauth.ValidateWebhookHMAC(body, sig, h.shopifySecret) {
+	validHMAC := shopifyauth.ValidateWebhookHMAC(body, sig, h.shopifySecret)
+
+	shop := c.GetHeader("X-Shopify-Shop-Domain")
+	topic := c.GetHeader("X-Shopify-Topic")
+
+	// GDPR compliance topics MUST always return 200 — Shopify requires acknowledgment
+	// regardless of HMAC validity (shop/redact arrives 48 days after uninstall when
+	// the merchant record may no longer exist). Process only when the HMAC is valid
+	// to avoid acting on spoofed requests, but always ack.
+	switch topic {
+	case "customers/data_request", "customers/redact", "shop/redact":
+		if !validHMAC {
+			h.log.Warn().Str("topic", topic).Str("ip", c.ClientIP()).Msg("webhook HMAC invalid on GDPR topic — acknowledging without processing")
+			c.JSON(http.StatusOK, gin.H{})
+			return
+		}
+		switch topic {
+		case "customers/data_request":
+			h.handleDataRequest(c, body, shop)
+		case "customers/redact":
+			h.handleCustomerRedact(c, body, shop)
+		case "shop/redact":
+			h.handleShopRedact(c, body, shop)
+		}
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+
+	// For all non-GDPR topics, reject invalid HMACs.
+	if !validHMAC {
 		h.log.Warn().Str("ip", c.ClientIP()).Msg("webhook HMAC validation failed")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 		return
@@ -93,27 +122,6 @@ func (h *WebhookHandler) Handle(c *gin.Context) {
 				return
 			}
 		}
-	}
-
-	shop := c.GetHeader("X-Shopify-Shop-Domain")
-	topic := c.GetHeader("X-Shopify-Topic")
-
-	// GDPR and app/uninstalled topics must always return 200 — even if the
-	// merchant is no longer in our database (shop/redact arrives 48 days after
-	// uninstall). Handle these before the merchant lookup.
-	switch topic {
-	case "customers/data_request":
-		h.handleDataRequest(c, body, shop)
-		c.JSON(http.StatusOK, gin.H{})
-		return
-	case "customers/redact":
-		h.handleCustomerRedact(c, body, shop)
-		c.JSON(http.StatusOK, gin.H{})
-		return
-	case "shop/redact":
-		h.handleShopRedact(c, body, shop)
-		c.JSON(http.StatusOK, gin.H{})
-		return
 	}
 
 	merchant, err := h.merchantRepo.FindByDomain(c.Request.Context(), shop)

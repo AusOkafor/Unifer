@@ -130,7 +130,7 @@ func (f *fakeDuplicateRepo) ListByMerchant(_ context.Context, _ uuid.UUID, _ str
 func (f *fakeDuplicateRepo) ListSafeGroups(_ context.Context, _ uuid.UUID) ([]models.DuplicateGroup, error) {
 	return nil, nil
 }
-func (f *fakeDuplicateRepo) FindByID(_ context.Context, _ uuid.UUID) (*models.DuplicateGroup, error) {
+func (f *fakeDuplicateRepo) FindByID(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*models.DuplicateGroup, error) {
 	return nil, errors.New("not found")
 }
 func (f *fakeDuplicateRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ string) error { return nil }

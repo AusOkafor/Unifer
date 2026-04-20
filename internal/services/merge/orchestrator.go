@@ -106,15 +106,12 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 		return fmt.Errorf("merge: decrypt token: %w", err)
 	}
 	if req.GroupID != uuid.Nil {
-		g, err := o.duplicateRepo.FindByID(ctx, req.GroupID)
+		g, err := o.duplicateRepo.FindByID(ctx, req.GroupID, req.MerchantID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("merge: duplicate group not found: %w", err)
 			}
 			return fmt.Errorf("merge: load duplicate group: %w", err)
-		}
-		if g.MerchantID != req.MerchantID {
-			return fmt.Errorf("merge: duplicate group belongs to another merchant")
 		}
 		if g.Status == "merged" {
 			return ErrAlreadyMerged
@@ -174,7 +171,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	// Determine confidence source from the group's intelligence report (if available).
 	confidenceSource := ""
 	if req.GroupID != uuid.Nil {
-		if group, err := o.duplicateRepo.FindByID(ctx, req.GroupID); err == nil && len(group.IntelligenceJSON) > 0 {
+		if group, err := o.duplicateRepo.FindByID(ctx, req.GroupID, req.MerchantID); err == nil && len(group.IntelligenceJSON) > 0 {
 			if report, err := intelligence.FromRawJSON(group.IntelligenceJSON); err == nil {
 				confidenceSource = report.ConfidenceSource
 			}
