@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/zerolog"
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
@@ -39,6 +40,8 @@ func AuthRequired(shopifyAPISecret, shopifyAPIKey string, merchantRepo repositor
 			return secret, nil
 		}, jwt.WithLeeway(30*time.Second))
 		if err != nil {
+			log := zerolog.Ctx(c.Request.Context())
+			log.Warn().Err(err).Msg("auth: JWT parse failed")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
