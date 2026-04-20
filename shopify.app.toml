@@ -3,7 +3,7 @@
 
 client_id = "fe48674949fdd16d375d47ffa74b5de3"
 name = "Customer Harmony"
-application_url = "https://identity-manager-4ew0.onrender.com"
+application_url = "https://customer-harmony.vercel.app"
 embedded = true
 
 [access_scopes]
