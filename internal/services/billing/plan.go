@@ -1,5 +1,5 @@
 // Package billing defines subscription plans, feature gates, and usage limits
-// for the Customer Harmony app.
+// for the MergeIQ app.
 //
 // Plans:
 //   - free  — 1,000 customers, 10 merges/month, profile matching only

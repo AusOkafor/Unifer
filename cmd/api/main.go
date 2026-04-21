@@ -35,7 +35,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 	log = utils.NewLogger(cfg.Environment)
-	log.Info().Str("env", cfg.Environment).Msg("starting Customer Harmony backend")
+	log.Info().Str("env", cfg.Environment).Msg("starting MergeIQ backend")
 
 	// --- Database ---
 	sqlDB, err := db.NewPostgres(cfg.DatabaseURL)

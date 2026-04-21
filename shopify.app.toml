@@ -1,8 +1,8 @@
-# Customer Harmony — Shopify App Configuration
+# MergeIQ — Shopify App Configuration
 # Replace YOUR_API_KEY_HERE with the client_id from Partner Dashboard after creating the app.
 
 client_id = "fe48674949fdd16d375d47ffa74b5de3"
-name = "Customer Harmony"
+name = "MergeIQ"
 application_url = "https://customer-harmony.vercel.app"
 embedded = true
 
