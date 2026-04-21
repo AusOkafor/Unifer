@@ -8,6 +8,7 @@ import (
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	billingpkg "merger/backend/internal/services/billing"
 )
 
 // Scheduler runs daily detection for every merchant that has
@@ -96,6 +97,9 @@ func (s *Scheduler) runDailyScan(ctx context.Context) {
 		if !settings.AutoDetect || settings.ScanFrequency != "daily" {
 			continue
 		}
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureAutoDetect) {
+			continue
+		}
 		// When triggered via RunNow (test endpoint), currentHour is checked
 		// against scan_hour only for the real scheduled path. RunNow always
 		// dispatches all eligible merchants regardless of hour.
@@ -144,6 +148,9 @@ func (s *Scheduler) scheduledRun(ctx context.Context) {
 			continue
 		}
 		if !settings.AutoDetect || settings.ScanFrequency != "daily" {
+			continue
+		}
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureAutoDetect) {
 			continue
 		}
 		if settings.ScanHour != currentHour {

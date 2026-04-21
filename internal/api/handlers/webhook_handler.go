@@ -14,6 +14,7 @@ import (
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	billingpkg "merger/backend/internal/services/billing"
 	shopifysvc "merger/backend/internal/services/shopify"
 	"merger/backend/pkg/shopifyauth"
 )
@@ -199,15 +200,18 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 	//   2. scan_frequency is "webhook" (not "daily" or "manual")
 	autoDetect := true
 	scanFrequency := "webhook"
+	plan := billingpkg.PlanFree
 	if h.settingsRepo != nil {
 		if s, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
 			autoDetect = s.AutoDetect
+			plan = s.Plan
 			if s.ScanFrequency != "" {
 				scanFrequency = s.ScanFrequency
 			}
 		}
 	}
-	if autoDetect && scanFrequency == "webhook" && h.jobDispatcher != nil {
+	if autoDetect && scanFrequency == "webhook" && h.jobDispatcher != nil &&
+		billingpkg.IsFeatureEnabled(plan, billingpkg.FeatureAutoDetect) {
 		if _, err := h.jobDispatcher.Dispatch(
 			c.Request.Context(),
 			models.JobTypeDetectDuplicates,
