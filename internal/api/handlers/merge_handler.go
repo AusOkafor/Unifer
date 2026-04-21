@@ -53,9 +53,11 @@ func NewMergeHandler(
 func (h *MergeHandler) Execute(c *gin.Context) {
 	merchant := middleware.GetMerchant(c)
 
+	// Load settings once — used for merge limit, override gate, and plan forwarding.
+	settings, settingsErr := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
+
 	// Enforce monthly merge limit before accepting the request.
-	settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID)
-	if err == nil {
+	if settingsErr == nil {
 		if err := billingpkg.CheckMergeAllowed(settings.Plan, settings.MergesThisMonth); err != nil {
 			c.JSON(http.StatusPaymentRequired, gin.H{
 				"error":   "MERGE_LIMIT_REACHED",
@@ -102,12 +104,24 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		return
 	}
 
-	// Respect the merchant's block_disabled_accounts setting at execute time too.
+	// Determine plan and override flag from the already-loaded settings.
+	plan := billingpkg.PlanFree
 	execOverride := req.OverrideDisabled
-	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+	if settingsErr == nil {
+		plan = settings.Plan
 		if !settings.BlockDisabledAccounts {
 			execOverride = true
 		}
+	}
+
+	// Gate explicit disabled-account override on FeatureOverride (basic+).
+	if req.OverrideDisabled && !billingpkg.IsFeatureEnabled(plan, billingpkg.FeatureOverride) {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":   "FEATURE_NOT_AVAILABLE",
+			"message": "Overriding disabled account blocks is available on the Basic plan and above.",
+			"plan":    plan,
+		})
+		return
 	}
 
 	payload := jobs.MergePayload{
@@ -117,6 +131,7 @@ func (h *MergeHandler) Execute(c *gin.Context) {
 		SecondaryIDs:      req.SecondaryIDs,
 		PerformedBy:       merchant.ShopDomain, // default attribution
 		OverrideDisabled:  execOverride,
+		Plan:              plan,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(

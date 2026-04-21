@@ -12,6 +12,7 @@ import (
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
+	billingpkg "merger/backend/internal/services/billing"
 	"merger/backend/internal/services/intelligence"
 	shopifysvc "merger/backend/internal/services/shopify"
 	"merger/backend/internal/utils"
@@ -40,7 +41,10 @@ type MergeRequest struct {
 	PerformedBy       string
 	// OverrideDisabled is true when the user explicitly bypassed the
 	// disabled_account hard block. Recorded in audit logs for traceability.
-	OverrideDisabled  bool
+	OverrideDisabled bool
+	// Plan is the merchant's billing plan — used to gate plan-only operations
+	// (e.g. snapshot creation). Empty string is treated as PlanFree.
+	Plan             string
 }
 
 // Orchestrator coordinates the full merge pipeline:
@@ -136,12 +140,16 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	}
 
 	// Step 3: Snapshot (MUST happen before any mutation — merge is irreversible).
-	log.Info().Msg("merge: creating snapshot")
-	snap, err := o.snapshotSvc.CreateFromCache(ctx, req.MerchantID, cacheCustomers)
-	if err != nil {
-		return fmt.Errorf("merge: snapshot failed: %w", err)
+	// Snapshots are a Basic+ feature; free-tier merges proceed without one.
+	var snap *models.Snapshot
+	if billingpkg.IsFeatureEnabled(req.Plan, billingpkg.FeatureSnapshots) {
+		log.Info().Msg("merge: creating snapshot")
+		snap, err = o.snapshotSvc.CreateFromCache(ctx, req.MerchantID, cacheCustomers)
+		if err != nil {
+			return fmt.Errorf("merge: snapshot failed: %w", err)
+		}
+		log.Info().Str("snapshot_id", snap.ID.String()).Msg("merge: snapshot created")
 	}
-	log.Info().Str("snapshot_id", snap.ID.String()).Msg("merge: snapshot created")
 
 	// Capture expected combined order count BEFORE the merge so we can validate
 	// Shopify consolidated them correctly afterwards.
@@ -155,9 +163,13 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	executor := o.newExecutor(merchant.ShopDomain, token, log)
 	result, err := executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs)
 	if err != nil {
-		log.Error().Err(err).Str("snapshot_id", snap.ID.String()).
-			Msg("merge: execute failed — snapshot preserved for recovery")
-		return fmt.Errorf("merge execute failed (snapshot %s preserved): %w", snap.ID, err)
+		if snap != nil {
+			log.Error().Err(err).Str("snapshot_id", snap.ID.String()).
+				Msg("merge: execute failed — snapshot preserved for recovery")
+			return fmt.Errorf("merge execute failed (snapshot %s preserved): %w", snap.ID, err)
+		}
+		log.Error().Err(err).Msg("merge: execute failed")
+		return fmt.Errorf("merge execute failed: %w", err)
 	}
 
 	log.Info().Str("resulting_gid", result.ResultingCustomerGID).Msg("merge: customerMerge succeeded")
@@ -185,14 +197,16 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 		SecondaryCustomerIDs: req.SecondaryIDs,
 		OrdersMoved:          0,
 		PerformedBy:          req.PerformedBy,
-		SnapshotID:           &snap.ID,
 		ConfidenceSource:     confidenceSource,
 		OverrideUsed:         req.OverrideDisabled,
+	}
+	if snap != nil {
+		mergeRecord.SnapshotID = &snap.ID
 	}
 
 	if err := o.mergeRepo.Create(ctx, mergeRecord); err != nil {
 		log.Error().Err(err).Msg("merge: audit record creation failed")
-	} else {
+	} else if snap != nil {
 		// Back-link snapshot → merge_record so Get(snapshot) and FindByMergeRecord work.
 		if err := o.snapshotSvc.LinkToMergeRecord(ctx, snap.ID, mergeRecord.ID); err != nil {
 			log.Warn().Err(err).

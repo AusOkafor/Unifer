@@ -29,7 +29,13 @@ func (h *SettingsHandler) Get(c *gin.Context) {
 		s = models.DefaultSettings(merchant.ID)
 	}
 
-	enforceSettingsGates(s)
+	if enforceSettingsGates(s) {
+		// Persist corrected values so the scheduler and webhook handler (which read
+		// raw DB) never see stale feature flags from a prior higher-tier plan.
+		if upsertErr := h.settingsRepo.Upsert(c.Request.Context(), s); upsertErr != nil {
+			h.log.Warn().Err(upsertErr).Str("shop", merchant.ShopDomain).Msg("settings get: failed to persist gate enforcement")
+		}
+	}
 	c.JSON(http.StatusOK, settingsResponse(s))
 }
 
@@ -172,20 +178,31 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 }
 
 // enforceSettingsGates zeros out any feature flags that the merchant's current plan
-// does not include. Called on both Get and Update so the DB value is never stale.
-func enforceSettingsGates(s *models.MerchantSettings) {
+// does not include. Returns true if any field was changed (caller should persist).
+func enforceSettingsGates(s *models.MerchantSettings) bool {
+	changed := false
 	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureOrderIntelligence) {
-		s.EnableBehavioralSignals = false
+		if s.EnableBehavioralSignals {
+			s.EnableBehavioralSignals = false
+			changed = true
+		}
 	}
 	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureAutoDetect) {
-		s.AutoDetect = false
-		s.ScanFrequency = "manual"
+		if s.AutoDetect || s.ScanFrequency != "manual" {
+			s.AutoDetect = false
+			s.ScanFrequency = "manual"
+			changed = true
+		}
 	}
 	if !billingpkg.IsFeatureEnabled(s.Plan, billingpkg.FeatureBulkMerge) {
-		s.BulkMaxBatch = 10
-		s.BulkDelayMs = 500
-		s.BulkRequirePreview = true
+		if s.BulkMaxBatch != 10 || s.BulkDelayMs != 500 || !s.BulkRequirePreview {
+			s.BulkMaxBatch = 10
+			s.BulkDelayMs = 500
+			s.BulkRequirePreview = true
+			changed = true
+		}
 	}
+	return changed
 }
 
 func settingsResponse(s *models.MerchantSettings) gin.H {
