@@ -30,6 +30,14 @@ type CustomerCacheRepository interface {
 	// CountByMerchant returns the number of customers currently in the cache for
 	// the merchant — used by /api/billing/current to show live usage.
 	CountByMerchant(ctx context.Context, merchantID uuid.UUID) (int, error)
+
+	// Platform-scoped methods — used by the WordPress adapter layer.
+	FindByMerchantAndPlatform(ctx context.Context, merchantID uuid.UUID, platform string) ([]models.CustomerCache, error)
+	FindByExternalID(ctx context.Context, merchantID uuid.UUID, platform string, externalID int64) (*models.CustomerCache, error)
+	FindByExternalIDs(ctx context.Context, merchantID uuid.UUID, platform string, externalIDs []int64) ([]models.CustomerCache, error)
+	DeleteByExternalID(ctx context.Context, merchantID uuid.UUID, platform string, externalID int64) error
+	DeleteStaleEntriesForPlatform(ctx context.Context, merchantID uuid.UUID, platform string, activeIDs []int64) (int64, error)
+	CountByMerchantAndPlatform(ctx context.Context, merchantID uuid.UUID, platform string) (int, error)
 }
 
 type customerCacheRepo struct {
@@ -41,16 +49,19 @@ func NewCustomerCacheRepo(db *sqlx.DB) CustomerCacheRepository {
 }
 
 func (r *customerCacheRepo) Upsert(ctx context.Context, c *models.CustomerCache) error {
+	if c.Platform == "" {
+		c.Platform = "shopify"
+	}
 	query := `
 		INSERT INTO customer_cache
-			(merchant_id, shopify_customer_id, email, name, phone, address_json, tags,
+			(merchant_id, platform, shopify_customer_id, email, name, phone, address_json, tags,
 			 orders_count, total_spent, note, state, verified_email, shopify_created_at,
 			 last_order_at, order_addresses, order_names, updated_at)
 		VALUES
-			(:merchant_id, :shopify_customer_id, :email, :name, :phone, :address_json, :tags,
+			(:merchant_id, :platform, :shopify_customer_id, :email, :name, :phone, :address_json, :tags,
 			 :orders_count, :total_spent, :note, :state, :verified_email, :shopify_created_at,
 			 :last_order_at, :order_addresses, :order_names, NOW())
-		ON CONFLICT (merchant_id, shopify_customer_id) DO UPDATE SET
+		ON CONFLICT (merchant_id, platform, shopify_customer_id) DO UPDATE SET
 			email              = EXCLUDED.email,
 			name               = EXCLUDED.name,
 			phone              = EXCLUDED.phone,
@@ -171,6 +182,83 @@ func (r *customerCacheRepo) CountByMerchant(ctx context.Context, merchantID uuid
 	)
 	if err != nil {
 		return 0, fmt.Errorf("customer cache count: %w", err)
+	}
+	return count, nil
+}
+
+func (r *customerCacheRepo) FindByMerchantAndPlatform(ctx context.Context, merchantID uuid.UUID, platform string) ([]models.CustomerCache, error) {
+	var customers []models.CustomerCache
+	err := r.db.SelectContext(ctx, &customers,
+		`SELECT * FROM customer_cache WHERE merchant_id = $1 AND platform = $2 ORDER BY updated_at DESC`,
+		merchantID, platform,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("customer cache find by merchant+platform: %w", err)
+	}
+	return customers, nil
+}
+
+func (r *customerCacheRepo) FindByExternalID(ctx context.Context, merchantID uuid.UUID, platform string, externalID int64) (*models.CustomerCache, error) {
+	var c models.CustomerCache
+	err := r.db.GetContext(ctx, &c,
+		`SELECT * FROM customer_cache WHERE merchant_id = $1 AND platform = $2 AND shopify_customer_id = $3`,
+		merchantID, platform, externalID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("customer cache find by external id: %w", err)
+	}
+	return &c, nil
+}
+
+func (r *customerCacheRepo) FindByExternalIDs(ctx context.Context, merchantID uuid.UUID, platform string, externalIDs []int64) ([]models.CustomerCache, error) {
+	if len(externalIDs) == 0 {
+		return nil, nil
+	}
+	var customers []models.CustomerCache
+	err := r.db.SelectContext(ctx, &customers,
+		`SELECT * FROM customer_cache WHERE merchant_id = $1 AND platform = $2 AND shopify_customer_id = ANY($3)`,
+		merchantID, platform, pq.Array(externalIDs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("customer cache find by external ids: %w", err)
+	}
+	return customers, nil
+}
+
+func (r *customerCacheRepo) DeleteByExternalID(ctx context.Context, merchantID uuid.UUID, platform string, externalID int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM customer_cache WHERE merchant_id = $1 AND platform = $2 AND shopify_customer_id = $3`,
+		merchantID, platform, externalID,
+	)
+	if err != nil {
+		return fmt.Errorf("customer cache delete by external id: %w", err)
+	}
+	return nil
+}
+
+func (r *customerCacheRepo) DeleteStaleEntriesForPlatform(ctx context.Context, merchantID uuid.UUID, platform string, activeIDs []int64) (int64, error) {
+	if len(activeIDs) == 0 {
+		return 0, nil
+	}
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM customer_cache WHERE merchant_id = $1 AND platform = $2 AND shopify_customer_id != ALL($3)`,
+		merchantID, platform, pq.Array(activeIDs),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("customer cache delete stale for platform: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (r *customerCacheRepo) CountByMerchantAndPlatform(ctx context.Context, merchantID uuid.UUID, platform string) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count,
+		`SELECT COUNT(*) FROM customer_cache WHERE merchant_id = $1 AND platform = $2`,
+		merchantID, platform,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("customer cache count by platform: %w", err)
 	}
 	return count, nil
 }

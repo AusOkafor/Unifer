@@ -18,6 +18,7 @@ type OrderAddress struct {
 type CustomerCache struct {
 	ID                uuid.UUID       `db:"id"`
 	MerchantID        uuid.UUID       `db:"merchant_id"`
+	Platform          string          `db:"platform"` // "shopify" | "wordpress"
 	ShopifyCustomerID int64           `db:"shopify_customer_id"`
 	Email             string          `db:"email"`
 	Name              string          `db:"name"`

@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	JobTypeSyncCustomers    = "sync_customers"
-	JobTypeDetectDuplicates = "detect_duplicates"
-	JobTypeMergeCustomers   = "merge_customers"
-	JobTypeRestoreSnapshot  = "restore_snapshot"
+	JobTypeSyncCustomers           = "sync_customers"
+	JobTypeDetectDuplicates        = "detect_duplicates"
+	JobTypeMergeCustomers          = "merge_customers"
+	JobTypeMergeCustomersWordPress = "merge_customers_wordpress"
+	JobTypeRestoreSnapshot         = "restore_snapshot"
 
 	JobStatusQueued     = "queued"
 	JobStatusProcessing = "processing"

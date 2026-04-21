@@ -25,6 +25,7 @@ type Handlers struct {
 	Scan         *handlers.ScanHandler
 	Webhook      *handlers.WebhookHandler
 	Notification *handlers.NotificationHandler
+	WP           *handlers.WPHandler
 }
 
 type Server struct {
@@ -33,6 +34,7 @@ type Server struct {
 	log          zerolog.Logger
 	h            *Handlers
 	merchantRepo repository.MerchantRepository
+	wpJWTSecret  string
 }
 
 func New(cfg *config.Config, log zerolog.Logger, merchantRepo repository.MerchantRepository, h *Handlers) *Server {
@@ -46,6 +48,7 @@ func New(cfg *config.Config, log zerolog.Logger, merchantRepo repository.Merchan
 		log:          log,
 		h:            h,
 		merchantRepo: merchantRepo,
+		wpJWTSecret:  cfg.WPJWTSecret,
 	}
 
 	s.engine.Use(Recovery(s.log))
@@ -170,6 +173,17 @@ func (s *Server) registerRoutes() {
 		api.POST("/notifications/read-all", s.stub("notifications: read-all"))
 		api.PATCH("/notifications/:id/read", s.stub("notifications: mark-read"))
 		api.DELETE("/notifications/:id", s.stub("notifications: delete"))
+	}
+
+	// WordPress merchant routes
+	if s.h.WP != nil {
+		wpapi := s.engine.Group("/api/wp")
+		wpapi.POST("/register", s.h.WP.Register)
+		wpapi.POST("/auth/refresh", s.h.WP.Refresh)
+
+		wpapiAuth := wpapi.Group("")
+		wpapiAuth.Use(middleware.AuthRequiredWordPress(s.wpJWTSecret, s.merchantRepo, s.log))
+		wpapiAuth.POST("/customers/sync", s.h.WP.SyncUsers)
 	}
 }
 

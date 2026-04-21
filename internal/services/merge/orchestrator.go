@@ -25,11 +25,21 @@ type snapshotService interface {
 	LinkToMergeRecord(ctx context.Context, snapshotID, mergeRecordID uuid.UUID) error
 }
 
-// mergeExecutor is the subset of Executor used by the orchestrator.
+// MergeExecutor is the subset of Executor used by the orchestrator.
 // Extracted as an interface so unit tests can inject a recording fake
-// without making real Shopify API calls.
-type mergeExecutor interface {
+// without making real Shopify API calls, and so alternate platform
+// executors (e.g. WordPress) can be plugged in via SetExecutorFactory.
+type MergeExecutor interface {
 	Execute(ctx context.Context, primaryID int64, secondaryIDs []int64) (*ExecuteResult, error)
+}
+
+// ExecutorFactory builds a MergeExecutor for a given merchant's credentials.
+type ExecutorFactory func(domain, token string, log zerolog.Logger) MergeExecutor
+
+// customerValidator is the validation step before a merge executes.
+// *Validator satisfies this interface; WPValidator does too.
+type customerValidator interface {
+	Validate(ctx context.Context, customers []models.CustomerCache) error
 }
 
 // MergeRequest holds the inputs for a merge operation.
@@ -50,21 +60,26 @@ type MergeRequest struct {
 // Orchestrator coordinates the full merge pipeline:
 // snapshot → validate → execute (customerMerge) → audit.
 type Orchestrator struct {
-	validator         *Validator
+	validator         customerValidator
 	snapshotSvc       snapshotService
 	mergeRepo         repository.MergeRepository
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
 	merchantRepo      repository.MerchantRepository
 	encryptor         *utils.Encryptor
-	// newExecutor builds a merge executor for a given merchant's Shopify credentials.
-	// Defaults to the real Shopify-backed executor; replaced in unit tests.
-	newExecutor func(domain, token string, log zerolog.Logger) mergeExecutor
+	// newExecutor builds a merge executor for a given merchant's credentials.
+	// Defaults to the real Shopify-backed executor; replaced in unit tests or
+	// overridden for alternate platforms via SetExecutorFactory.
+	newExecutor ExecutorFactory
 	log         zerolog.Logger
 }
 
+// SetExecutorFactory replaces the executor factory used for subsequent Execute
+// calls. Use this to plug in a non-Shopify executor (e.g. WordPress).
+func (o *Orchestrator) SetExecutorFactory(f ExecutorFactory) { o.newExecutor = f }
+
 func NewOrchestrator(
-	validator *Validator,
+	validator customerValidator,
 	snapshotSvc snapshotService,
 	mergeRepo repository.MergeRepository,
 	duplicateRepo repository.DuplicateRepository,
@@ -87,7 +102,7 @@ func NewOrchestrator(
 }
 
 // defaultExecutorFactory wires the real Shopify-backed executor.
-func defaultExecutorFactory(domain, token string, log zerolog.Logger) mergeExecutor {
+func defaultExecutorFactory(domain, token string, log zerolog.Logger) MergeExecutor {
 	client := shopifysvc.NewClient(domain, token, log)
 	customerSvc := shopifysvc.NewCustomerService(client)
 	return NewExecutor(customerSvc)

@@ -168,6 +168,24 @@ func (f *fakeCacheRepo) DeleteStaleEntries(_ context.Context, _ uuid.UUID, _ []i
 	return 0, nil
 }
 func (f *fakeCacheRepo) CountByMerchant(_ context.Context, _ uuid.UUID) (int, error) { return 0, nil }
+func (f *fakeCacheRepo) FindByMerchantAndPlatform(_ context.Context, _ uuid.UUID, _ string) ([]models.CustomerCache, error) {
+	return nil, nil
+}
+func (f *fakeCacheRepo) FindByExternalID(_ context.Context, _ uuid.UUID, _ string, _ int64) (*models.CustomerCache, error) {
+	return nil, nil
+}
+func (f *fakeCacheRepo) FindByExternalIDs(_ context.Context, _ uuid.UUID, _ string, _ []int64) ([]models.CustomerCache, error) {
+	return nil, nil
+}
+func (f *fakeCacheRepo) DeleteByExternalID(_ context.Context, _ uuid.UUID, _ string, _ int64) error {
+	return nil
+}
+func (f *fakeCacheRepo) DeleteStaleEntriesForPlatform(_ context.Context, _ uuid.UUID, _ string, _ []int64) (int64, error) {
+	return 0, nil
+}
+func (f *fakeCacheRepo) CountByMerchantAndPlatform(_ context.Context, _ uuid.UUID, _ string) (int, error) {
+	return 0, nil
+}
 
 // fakeMerchantRepo returns a preset merchant for FindByID.
 type fakeMerchantRepo struct{ merchant *models.Merchant }
@@ -229,7 +247,7 @@ func newHarness(t *testing.T) *harness {
 		zerolog.Nop(),
 	)
 	// Inject the recording fake executor — no real Shopify calls.
-	o.newExecutor = func(_, _ string, _ zerolog.Logger) mergeExecutor { return exec }
+	o.newExecutor = func(_, _ string, _ zerolog.Logger) MergeExecutor { return exec }
 
 	return &harness{
 		o: o, snapSvc: snapSvc, exec: exec, mergeRepo: mergeRepo, merchantID: merchantID,
@@ -242,6 +260,7 @@ func (h *harness) req() MergeRequest {
 		PrimaryCustomerID: 10,
 		SecondaryIDs:      []int64{11},
 		PerformedBy:       "test-user",
+		Plan:              "basic", // must be basic+ to enable snapshot creation
 	}
 }
 

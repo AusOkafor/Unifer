@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"merger/backend/internal/api/handlers"
 	"merger/backend/internal/config"
 	"merger/backend/internal/db"
@@ -23,6 +25,7 @@ import (
 	snapshotsvc "merger/backend/internal/services/snapshot"
 	shopifysvc "merger/backend/internal/services/shopify"
 	syncsvc "merger/backend/internal/services/sync"
+	wpsvc "merger/backend/internal/services/wordpress"
 	"merger/backend/internal/utils"
 	"merger/backend/pkg/shopifyauth"
 )
@@ -79,6 +82,7 @@ func main() {
 	jobRepo := repository.NewJobRepo(sqlDB)
 	settingsRepo := repository.NewSettingsRepo(sqlDB)
 	notifRepo := repository.NewNotificationRepo(sqlDB)
+	wpRefreshTokenRepo := repository.NewWPRefreshTokenRepo(sqlDB)
 
 	// --- Queue ---
 	q := queue.New(redisClient)
@@ -106,9 +110,33 @@ func main() {
 	detector := identity.NewDetector(customerCacheRepo, duplicateRepo, settingsRepo, analyzer, log)
 	syncService := syncsvc.NewService(merchantRepo, customerCacheRepo, encryptor, log)
 	notificationSvc := notifsvc.NewService(notifRepo, settingsRepo, sqlDB, log)
+
+	// --- WordPress services ---
+	wpSyncSvc := wpsvc.NewSyncService(customerCacheRepo, log)
+	wpOrchestrator := mergesvc.NewOrchestrator(
+		wpsvc.NewWPValidator(), snapshotSvc,
+		mergeRepo, duplicateRepo,
+		customerCacheRepo, merchantRepo, encryptor, log,
+	)
+	wpOrchestrator.SetExecutorFactory(func(domain, token string, l zerolog.Logger) mergesvc.MergeExecutor {
+		return wpsvc.NewExecutor(wpsvc.NewClient(domain, token, l), l)
+	})
+
+	// Warn if WP_JWT_SECRET is not set (non-fatal for Shopify-only deploys).
+	if err := cfg.WPJWTSecretWarning(); err != nil {
+		log.Warn().Msg(err.Error())
+	}
+
 	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, notificationSvc, log)
+	processor.SetWPOrchestrator(wpOrchestrator)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)
 	scheduler := jobs.NewScheduler(merchantRepo, settingsRepo, notifRepo, dispatcher, log)
+
+	// --- WordPress handler ---
+	wpHandler := handlers.NewWPHandler(
+		merchantRepo, wpRefreshTokenRepo, wpSyncSvc,
+		dispatcher, encryptor, cfg.WPJWTSecret, log,
+	)
 
 	// --- Handlers ---
 	h := &server.Handlers{
@@ -136,6 +164,7 @@ func main() {
 			log,
 		),
 		Notification: handlers.NewNotificationHandler(notifRepo, log),
+		WP:           wpHandler,
 	}
 
 	// --- Server ---

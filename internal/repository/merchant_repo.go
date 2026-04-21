@@ -28,11 +28,15 @@ func NewMerchantRepo(db *sqlx.DB) MerchantRepository {
 }
 
 func (r *merchantRepo) Create(ctx context.Context, m *models.Merchant) error {
+	if m.Platform == "" {
+		m.Platform = "shopify"
+	}
 	query := `
-		INSERT INTO merchants (shop_domain, access_token_enc)
-		VALUES (:shop_domain, :access_token_enc)
+		INSERT INTO merchants (shop_domain, access_token_enc, platform)
+		VALUES (:shop_domain, :access_token_enc, :platform)
 		ON CONFLICT (shop_domain) DO UPDATE
-		  SET access_token_enc = EXCLUDED.access_token_enc
+		  SET access_token_enc = EXCLUDED.access_token_enc,
+		      platform         = EXCLUDED.platform
 		RETURNING id, created_at`
 	rows, err := r.db.NamedQueryContext(ctx, query, m)
 	if err != nil {

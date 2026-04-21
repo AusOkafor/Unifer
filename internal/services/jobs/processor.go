@@ -50,14 +50,15 @@ type RestorePayload struct {
 
 // Processor handles execution of each job type.
 type Processor struct {
-	detector     *identity.Detector
-	orchestrator *mergesvc.Orchestrator
-	snapshotSvc  *snapshotsvc.Service
-	syncSvc      *syncsvc.Service
-	jobRepo      repository.JobRepository
-	dispatcher   *Dispatcher
-	notifSvc     *notifsvc.Service // may be nil — notifications skipped if not wired
-	log          zerolog.Logger
+	detector       *identity.Detector
+	orchestrator   *mergesvc.Orchestrator
+	wpOrchestrator *mergesvc.Orchestrator // nil when WP is not wired
+	snapshotSvc    *snapshotsvc.Service
+	syncSvc        *syncsvc.Service
+	jobRepo        repository.JobRepository
+	dispatcher     *Dispatcher
+	notifSvc       *notifsvc.Service // may be nil — notifications skipped if not wired
+	log            zerolog.Logger
 }
 
 func NewProcessor(
@@ -82,6 +83,10 @@ func NewProcessor(
 	}
 }
 
+// SetWPOrchestrator injects the WordPress-specific orchestrator.
+// Call this after NewProcessor when WordPress support is enabled.
+func (p *Processor) SetWPOrchestrator(o *mergesvc.Orchestrator) { p.wpOrchestrator = o }
+
 // Process dispatches the job to the appropriate handler based on type.
 func (p *Processor) Process(ctx context.Context, job *models.Job) error {
 	switch job.Type {
@@ -91,6 +96,8 @@ func (p *Processor) Process(ctx context.Context, job *models.Job) error {
 		return p.processDetect(ctx, job)
 	case models.JobTypeMergeCustomers:
 		return p.processMerge(ctx, job)
+	case models.JobTypeMergeCustomersWordPress:
+		return p.processWPMerge(ctx, job)
 	case models.JobTypeRestoreSnapshot:
 		return p.processRestore(ctx, job)
 	default:
@@ -170,6 +177,47 @@ func (p *Processor) processMerge(ctx context.Context, job *models.Job) error {
 	}
 
 	if err := p.orchestrator.Execute(ctx, req); err != nil {
+		if p.notifSvc != nil {
+			p.notifSvc.OnMergeFailed(ctx, merchantID, err)
+		}
+		return err
+	}
+	if p.notifSvc != nil {
+		p.notifSvc.OnMergeComplete(ctx, merchantID, payload.PrimaryCustomerID, len(payload.SecondaryIDs))
+	}
+	return nil
+}
+
+func (p *Processor) processWPMerge(ctx context.Context, job *models.Job) error {
+	if p.wpOrchestrator == nil {
+		return fmt.Errorf("wp merge: orchestrator not configured")
+	}
+	var payload MergePayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return fmt.Errorf("unmarshal wp merge payload: %w", err)
+	}
+
+	merchantID, err := uuid.Parse(payload.MerchantID)
+	if err != nil {
+		return fmt.Errorf("invalid merchant id: %w", err)
+	}
+
+	groupID := uuid.Nil
+	if payload.GroupID != "" {
+		groupID, _ = uuid.Parse(payload.GroupID)
+	}
+
+	req := mergesvc.MergeRequest{
+		MerchantID:        merchantID,
+		GroupID:           groupID,
+		PrimaryCustomerID: payload.PrimaryCustomerID,
+		SecondaryIDs:      payload.SecondaryIDs,
+		PerformedBy:       payload.PerformedBy,
+		OverrideDisabled:  payload.OverrideDisabled,
+		Plan:              payload.Plan,
+	}
+
+	if err := p.wpOrchestrator.Execute(ctx, req); err != nil {
 		if p.notifSvc != nil {
 			p.notifSvc.OnMergeFailed(ctx, merchantID, err)
 		}

@@ -20,6 +20,7 @@ type Config struct {
 	Environment          string
 	JWTSecret            string
 	FrontendURL          string
+	WPJWTSecret          string
 }
 
 func Load() (*Config, error) {
@@ -37,6 +38,7 @@ func Load() (*Config, error) {
 		ShopifyWebhookSecret: os.Getenv("SHOPIFY_WEBHOOK_SECRET"),
 		EncryptionKey:        os.Getenv("ENCRYPTION_KEY"),
 		JWTSecret:            os.Getenv("JWT_SECRET"),
+		WPJWTSecret:          os.Getenv("WP_JWT_SECRET"),
 		AppURL:               os.Getenv("APP_URL"),
 		Environment:          getEnv("ENVIRONMENT", "development"),
 		FrontendURL:          getEnv("FRONTEND_URL", "http://localhost:8080"),
@@ -59,6 +61,15 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// WPJWTSecretWarning returns a non-nil error if WP_JWT_SECRET is missing.
+// Callers should Fatal if WordPress merchants exist; Warn otherwise.
+func (c *Config) WPJWTSecretWarning() error {
+	if c.WPJWTSecret == "" {
+		return fmt.Errorf("WP_JWT_SECRET is not set — WordPress merchant auth will not work")
+	}
+	return nil
 }
 
 func getEnv(key, defaultVal string) string {
