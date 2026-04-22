@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"merger/backend/internal/models"
 	"merger/backend/internal/utils"
@@ -54,6 +55,7 @@ func MapWPUserToCustomerCache(merchantID uuid.UUID, u WPUser) *models.CustomerCa
 		Email:             utils.NormalizeEmail(u.Email),
 		Name:              name,
 		Phone:             u.Phone,
+		Tags:              pq.StringArray{},
 		AddressJSON:       addr,
 		OrdersCount:       u.OrderCount,
 		TotalSpent:        u.TotalSpent,
