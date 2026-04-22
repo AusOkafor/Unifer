@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -180,7 +181,7 @@ func (h *DuplicateHandler) Get(c *gin.Context) {
 				Tags:              tags,
 				OrdersCount:       cached.OrdersCount,
 				TotalSpent:        cached.TotalSpent,
-				AddressJSON:       cached.AddressJSON,
+				AddressJSON:       json.RawMessage(cached.AddressJSON),
 				Note:              cached.Note,
 				State:             cached.State,
 				VerifiedEmail:     cached.VerifiedEmail,

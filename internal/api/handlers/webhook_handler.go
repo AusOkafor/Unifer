@@ -180,7 +180,7 @@ func (h *WebhookHandler) handleCustomerUpsert(c *gin.Context, body []byte, merch
 		Email:             payload.Email,
 		Name:              name,
 		Phone:             payload.Phone,
-		AddressJSON:       addrJSON,
+		AddressJSON:       models.NullableJSON(addrJSON),
 		Tags:              cleanTags,
 		OrdersCount:       payload.OrdersCount,
 		TotalSpent:        payload.TotalSpent,

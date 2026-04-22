@@ -56,7 +56,7 @@ func MapWPUserToCustomerCache(merchantID uuid.UUID, u WPUser) *models.CustomerCa
 		Name:              name,
 		Phone:             u.Phone,
 		Tags:              pq.StringArray{},
-		AddressJSON:       addr,
+		AddressJSON:       models.NullableJSON(addr),
 		OrdersCount:       u.OrderCount,
 		TotalSpent:        u.TotalSpent,
 		State:             u.Role, // "administrator" is blocked by WPValidator

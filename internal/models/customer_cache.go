@@ -2,11 +2,40 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
+
+// NullableJSON is a json.RawMessage that correctly scans SQL NULL as nil.
+// database/sql cannot scan NULL into json.RawMessage directly because the
+// named type lacks a sql.Scanner implementation.
+type NullableJSON []byte
+
+func (n *NullableJSON) Scan(v interface{}) error {
+	if v == nil {
+		*n = nil
+		return nil
+	}
+	switch b := v.(type) {
+	case []byte:
+		*n = append((*n)[:0], b...)
+	case string:
+		*n = []byte(b)
+	default:
+		return fmt.Errorf("NullableJSON: unsupported type %T", v)
+	}
+	return nil
+}
+
+func (n NullableJSON) MarshalJSON() ([]byte, error) {
+	if len(n) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(n), nil
+}
 
 type OrderAddress struct {
 	Street  string `json:"street"`
@@ -16,14 +45,14 @@ type OrderAddress struct {
 }
 
 type CustomerCache struct {
-	ID                uuid.UUID       `db:"id"`
-	MerchantID        uuid.UUID       `db:"merchant_id"`
-	Platform          string          `db:"platform"` // "shopify" | "wordpress"
-	ShopifyCustomerID int64           `db:"shopify_customer_id"`
-	Email             string          `db:"email"`
-	Name              string          `db:"name"`
-	Phone             string          `db:"phone"`
-	AddressJSON       json.RawMessage `db:"address_json"`
+	ID                uuid.UUID    `db:"id"`
+	MerchantID        uuid.UUID    `db:"merchant_id"`
+	Platform          string       `db:"platform"` // "shopify" | "wordpress"
+	ShopifyCustomerID int64        `db:"shopify_customer_id"`
+	Email             string       `db:"email"`
+	Name              string       `db:"name"`
+	Phone             string       `db:"phone"`
+	AddressJSON       NullableJSON `db:"address_json"`
 	Tags              pq.StringArray  `db:"tags"`
 	OrdersCount       int             `db:"orders_count"`
 	TotalSpent        string          `db:"total_spent"`
