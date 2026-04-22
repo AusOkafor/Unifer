@@ -41,9 +41,9 @@ func NewWPHandler(
 		refreshRepo:  refreshRepo,
 		syncSvc:      syncSvc,
 		dispatcher:   dispatcher,
-		encryptor:    encryptor,
-		jwtSecret:    jwtSecret,
-		log:          log,
+		encryptor:     encryptor,
+		jwtSecret:     jwtSecret,
+		log:           log,
 	}
 }
 
@@ -105,7 +105,7 @@ func (h *WPHandler) Register(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.WPRegisterResponse{
 		AccessToken:  accessToken,
-		RefreshToken: raw,
+		RefreshToken: merchant.ID.String() + ":" + raw,
 		ExpiresIn:    900, // 15 minutes
 	})
 }
