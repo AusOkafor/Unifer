@@ -181,10 +181,12 @@ func (h *WPHandler) SyncUsers(c *gin.Context) {
 
 	var req dto.WPSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.log.Warn().Err(err).Str("merchant_id", merchant.ID.String()).Msg("wp sync: invalid request body — plugin may be sending 'users' instead of 'customers'")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if len(req.Customers) == 0 {
+		h.log.Warn().Str("merchant_id", merchant.ID.String()).Msg("wp sync: customers array is empty or missing")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "customers must not be empty"})
 		return
 	}
