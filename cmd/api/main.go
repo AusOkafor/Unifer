@@ -191,6 +191,9 @@ func main() {
 			return
 		}
 		for _, m := range merchants {
+			if m.Platform != "" && m.Platform != "shopify" {
+				continue // webhook registration is Shopify-only
+			}
 			token, err := encryptor.Decrypt(m.AccessTokenEnc)
 			if err != nil {
 				log.Warn().Err(err).Str("shop", m.ShopDomain).Msg("startup: decrypt token failed")

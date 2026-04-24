@@ -29,6 +29,10 @@ type Client struct {
 }
 
 func NewClient(shopDomain, accessToken string, log zerolog.Logger) *Client {
+	// ShopDomain must be a bare domain (e.g. "store.myshopify.com"). Strip any
+	// scheme prefix that may have been stored by an early registration call so we
+	// never build a double-scheme URL like https://http://....
+	shopDomain = strings.TrimPrefix(strings.TrimPrefix(shopDomain, "https://"), "http://")
 	return &Client{
 		shopDomain:  shopDomain,
 		accessToken: accessToken,
