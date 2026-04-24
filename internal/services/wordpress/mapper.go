@@ -14,6 +14,10 @@ import (
 	"merger/backend/internal/utils"
 )
 
+// emptyJSONArray is a valid JSON array used to satisfy NOT NULL / JSON-typed
+// columns when the WP customer has no per-order data to populate.
+var emptyJSONArray = json.RawMessage(`[]`)
+
 // WCCustomer is the shape of a WooCommerce customer as sent by the MergeIQ WP plugin.
 // Data is built from WooCommerce order records (wc_get_orders) rather than wp_users,
 // so guest customers (no WP account) are included alongside registered ones.
@@ -71,6 +75,7 @@ func MapWCCustomerToCustomerCache(merchantID uuid.UUID, c WCCustomer) *models.Cu
 		TotalSpent:        c.TotalSpent,
 		State:             c.Role, // "administrator" is blocked by WPValidator
 		ShopifyCreatedAt:  createdAt,
+		OrderAddresses:    &emptyJSONArray, // no per-order address history in WC sync v1
 	}
 }
 
