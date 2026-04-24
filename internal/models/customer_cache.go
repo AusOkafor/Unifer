@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"time"
 
@@ -27,6 +28,17 @@ func (n *NullableJSON) Scan(v interface{}) error {
 		return fmt.Errorf("NullableJSON: unsupported type %T", v)
 	}
 	return nil
+}
+
+// Value implements driver.Valuer so pgx (and pq) send NullableJSON as a text
+// string rather than a bytea hex literal. pgx in simple-query protocol encodes
+// bare []byte as \x<hex>, which PostgreSQL rejects for jsonb columns. Returning
+// string(n) lets pgx emit a quoted text literal that PostgreSQL parses as JSON.
+func (n NullableJSON) Value() (driver.Value, error) {
+	if len(n) == 0 {
+		return nil, nil
+	}
+	return string(n), nil
 }
 
 func (n NullableJSON) MarshalJSON() ([]byte, error) {
