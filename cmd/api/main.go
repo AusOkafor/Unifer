@@ -119,7 +119,7 @@ func main() {
 		customerCacheRepo, merchantRepo, encryptor, log,
 	)
 	wpOrchestrator.SetExecutorFactory(func(domain, token string, l zerolog.Logger) mergesvc.MergeExecutor {
-		return wpsvc.NewExecutor(wpsvc.NewClient(domain, token, l), l)
+		return wpsvc.NewExecutor(wpsvc.NewClient(domain, token, l), customerCacheRepo, merchantRepo, domain, l)
 	})
 
 	// Warn if WP_JWT_SECRET is not set (non-fatal for Shopify-only deploys).

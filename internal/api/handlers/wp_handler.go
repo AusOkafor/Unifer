@@ -161,12 +161,12 @@ func (h *WPHandler) SyncUsers(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if len(req.Users) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "users must not be empty"})
+	if len(req.Customers) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "customers must not be empty"})
 		return
 	}
 
-	ingested, err := h.syncSvc.IngestUsers(c.Request.Context(), merchant.ID, req.Users)
+	ingested, err := h.syncSvc.IngestCustomers(c.Request.Context(), merchant.ID, req.Customers)
 	if err != nil {
 		h.log.Error().Err(err).Str("merchant_id", merchant.ID.String()).Msg("wp sync: ingest failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "sync failed"})

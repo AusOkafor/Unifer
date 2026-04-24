@@ -23,7 +23,7 @@ type WPRefreshResponse struct {
 }
 
 type WPSyncRequest struct {
-	Users []wpsvc.WPUser `json:"users" binding:"required"`
+	Customers []wpsvc.WCCustomer `json:"customers" binding:"required"`
 }
 
 type WPSyncResponse struct {

@@ -3,6 +3,7 @@ package wordpress
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -13,71 +14,95 @@ import (
 	"merger/backend/internal/utils"
 )
 
-// WPUser is the shape of a WordPress user as sent by the MergeIQ WP plugin.
-type WPUser struct {
-	ID           int64  `json:"id"`
-	Email        string `json:"email"`
-	DisplayName  string `json:"display_name"`
-	FirstName    string `json:"first_name"`
-	LastName     string `json:"last_name"`
-	Phone        string `json:"phone"`
-	City         string `json:"city"`
-	Zip          string `json:"zip"`
-	Country      string `json:"country"`
-	Role         string `json:"role"`           // "administrator", "customer", etc.
-	RegisteredAt string `json:"registered_at"`  // ISO 8601
-	OrderCount   int    `json:"order_count"`
-	TotalSpent   string `json:"total_spent"`
+// WCCustomer is the shape of a WooCommerce customer as sent by the MergeIQ WP plugin.
+// Data is built from WooCommerce order records (wc_get_orders) rather than wp_users,
+// so guest customers (no WP account) are included alongside registered ones.
+type WCCustomer struct {
+	UserID        int64  `json:"user_id"`        // 0 for guest customers (no WP account)
+	IsGuest       bool   `json:"is_guest"`        // true when UserID == 0
+	Email         string `json:"email"`           // billing email — required, primary identity key
+	FirstName     string `json:"first_name"`      // billing first name
+	LastName      string `json:"last_name"`       // billing last name
+	Phone         string `json:"phone"`           // billing phone
+	City          string `json:"city"`            // billing city
+	StateProvince string `json:"state"`           // billing state/province
+	Postcode      string `json:"postcode"`        // billing postcode
+	Country       string `json:"country"`         // billing country code (ISO 3166-1 alpha-2)
+	Role          string `json:"role"`            // WP role ("customer", "administrator", …); empty for guests
+	RegisteredAt  string `json:"registered_at"`   // ISO 8601 account creation; empty for guests
+	OrderCount    int    `json:"order_count"`     // total orders from wc_get_orders()
+	TotalSpent    string `json:"total_spent"`     // sum of order totals
 }
 
-// MapWPUserToCustomerCache converts a WPUser into a CustomerCache row.
-// WP user IDs are stored in ShopifyCustomerID (int64 column); Platform="wordpress"
-// keeps them isolated from Shopify rows that share the same merchant.
-func MapWPUserToCustomerCache(merchantID uuid.UUID, u WPUser) *models.CustomerCache {
-	name := strings.TrimSpace(u.DisplayName)
-	if name == "" {
-		name = strings.TrimSpace(u.FirstName + " " + u.LastName)
-	}
+// MapWCCustomerToCustomerCache converts a WCCustomer into a CustomerCache row.
+//
+// External IDs: registered users use their real WP user_id; guest customers get a
+// stable negative int64 derived from their email via guestExternalID(). Negative IDs
+// cannot collide with real WP user IDs (which are always > 0).
+//
+// Platform="wordpress" isolates these rows from Shopify rows sharing the same merchant.
+func MapWCCustomerToCustomerCache(merchantID uuid.UUID, c WCCustomer) *models.CustomerCache {
+	name := strings.TrimSpace(c.FirstName + " " + c.LastName)
 
 	var createdAt *time.Time
-	if u.RegisteredAt != "" {
-		if t, err := time.Parse(time.RFC3339, u.RegisteredAt); err == nil {
+	if c.RegisteredAt != "" {
+		if t, err := time.Parse(time.RFC3339, c.RegisteredAt); err == nil {
 			createdAt = &t
 		}
 	}
 
-	addr := buildAddress(u)
+	externalID := c.UserID
+	if c.IsGuest || c.UserID == 0 {
+		externalID = guestExternalID(c.Email)
+	}
+
+	addr := buildWCAddress(c)
 
 	return &models.CustomerCache{
 		MerchantID:        merchantID,
 		Platform:          "wordpress",
-		ShopifyCustomerID: u.ID, // WP user ID stored here; Platform disambiguates
-		Email:             utils.NormalizeEmail(u.Email),
+		ShopifyCustomerID: externalID,
+		Email:             utils.NormalizeEmail(c.Email),
 		Name:              name,
-		Phone:             u.Phone,
+		Phone:             c.Phone,
 		Tags:              pq.StringArray{},
 		AddressJSON:       models.NullableJSON(addr),
-		OrdersCount:       u.OrderCount,
-		TotalSpent:        u.TotalSpent,
-		State:             u.Role, // "administrator" is blocked by WPValidator
+		OrdersCount:       c.OrderCount,
+		TotalSpent:        c.TotalSpent,
+		State:             c.Role, // "administrator" is blocked by WPValidator
 		ShopifyCreatedAt:  createdAt,
 	}
 }
 
-func buildAddress(u WPUser) json.RawMessage {
-	if u.City == "" && u.Zip == "" && u.Country == "" {
+// guestExternalID returns a stable negative int64 for a guest customer who has no WP
+// user account. Real WP user IDs are always > 0, so negative values unambiguously
+// identify guest-only order streams and cannot collide with registered-user IDs.
+func guestExternalID(email string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(strings.ToLower(strings.TrimSpace(email))))
+	// Right-shift clears bit 63 to keep the uint64 in int64 range,
+	// then negate so the result is always negative and non-zero.
+	return -(int64(h.Sum64()>>1) + 1)
+}
+
+func buildWCAddress(c WCCustomer) json.RawMessage {
+	if c.City == "" && c.Postcode == "" && c.Country == "" {
 		return nil
 	}
 	b, _ := json.Marshal(models.OrderAddress{
-		City:    u.City,
-		Zip:     u.Zip,
-		Country: u.Country,
+		City:    c.City,
+		Zip:     c.Postcode,
+		Country: c.Country,
 	})
 	return b
 }
 
-// WPUserGID returns the pseudo-GID stored in MergeRecord.ResultingCustomerGID
-// for WordPress merges so the field is non-empty and traceable.
-func WPUserGID(userID int64) string {
-	return fmt.Sprintf("wp://User/%d", userID)
+// WCCustomerGID returns the pseudo-GID stored in MergeRecord.ResultingCustomerGID
+// for WooCommerce merges. Registered users get a user-ID GID; guest survivors
+// (rare: only if a guest was the primary and no account was created) get an email GID.
+func WCCustomerGID(userID int64, email string) string {
+	if userID > 0 {
+		return fmt.Sprintf("wc://User/%d", userID)
+	}
+	return fmt.Sprintf("wc://Guest/%s", email)
 }
