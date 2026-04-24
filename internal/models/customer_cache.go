@@ -1,7 +1,6 @@
 package models
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -61,7 +60,7 @@ type CustomerCache struct {
 	VerifiedEmail     bool            `db:"verified_email"`
 	ShopifyCreatedAt  *time.Time      `db:"shopify_created_at"`
 	LastOrderAt       *time.Time      `db:"last_order_at"`
-	OrderAddresses    *json.RawMessage `db:"order_addresses"`
+	OrderAddresses    NullableJSON     `db:"order_addresses"`
 	OrderNames        pq.StringArray  `db:"order_names"`
 	UpdatedAt         time.Time       `db:"updated_at"`
 }
