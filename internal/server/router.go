@@ -184,6 +184,12 @@ func (s *Server) registerRoutes() {
 		wpapiAuth := wpapi.Group("")
 		wpapiAuth.Use(middleware.AuthRequiredWordPress(s.wpJWTSecret, s.merchantRepo, s.log))
 		wpapiAuth.POST("/customers/sync", s.h.WP.SyncUsers)
+		wpapiAuth.GET("/metrics/dashboard", s.h.WP.Dashboard)
+		wpapiAuth.GET("/duplicates", s.h.WP.ListDuplicates)
+		wpapiAuth.GET("/duplicates/:id", s.h.WP.GetDuplicate)
+		wpapiAuth.POST("/duplicates/:id/dismiss", s.h.WP.DismissDuplicate)
+		wpapiAuth.POST("/merge/execute", s.h.WP.ExecuteMerge)
+		wpapiAuth.GET("/merge/history", s.h.WP.MergeHistory)
 	}
 }
 

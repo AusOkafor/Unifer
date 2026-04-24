@@ -135,7 +135,9 @@ func main() {
 	// --- WordPress handler ---
 	wpHandler := handlers.NewWPHandler(
 		merchantRepo, wpRefreshTokenRepo, wpSyncSvc,
-		dispatcher, encryptor, cfg.WPJWTSecret, log,
+		dispatcher, encryptor,
+		duplicateRepo, customerCacheRepo, mergeRepo, settingsRepo, sqlDB,
+		cfg.WPJWTSecret, log,
 	)
 
 	// --- Handlers ---
