@@ -127,7 +127,7 @@ func main() {
 		log.Warn().Msg(err.Error())
 	}
 
-	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, dispatcher, notificationSvc, log)
+	processor := jobs.NewProcessor(detector, orchestrator, snapshotSvc, syncService, jobRepo, customerCacheRepo, dispatcher, notificationSvc, log)
 	processor.SetWPOrchestrator(wpOrchestrator)
 	worker := jobs.NewWorker(q, processor, jobRepo, 3, log)
 	scheduler := jobs.NewScheduler(merchantRepo, settingsRepo, notifRepo, dispatcher, log)

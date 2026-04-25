@@ -50,15 +50,16 @@ type RestorePayload struct {
 
 // Processor handles execution of each job type.
 type Processor struct {
-	detector       *identity.Detector
-	orchestrator   *mergesvc.Orchestrator
-	wpOrchestrator *mergesvc.Orchestrator // nil when WP is not wired
-	snapshotSvc    *snapshotsvc.Service
-	syncSvc        *syncsvc.Service
-	jobRepo        repository.JobRepository
-	dispatcher     *Dispatcher
-	notifSvc       *notifsvc.Service // may be nil — notifications skipped if not wired
-	log            zerolog.Logger
+	detector          *identity.Detector
+	orchestrator      *mergesvc.Orchestrator
+	wpOrchestrator    *mergesvc.Orchestrator // nil when WP is not wired
+	snapshotSvc       *snapshotsvc.Service
+	syncSvc           *syncsvc.Service
+	jobRepo           repository.JobRepository
+	customerCacheRepo repository.CustomerCacheRepository
+	dispatcher        *Dispatcher
+	notifSvc          *notifsvc.Service // may be nil — notifications skipped if not wired
+	log               zerolog.Logger
 }
 
 func NewProcessor(
@@ -67,19 +68,21 @@ func NewProcessor(
 	snapshotSvc *snapshotsvc.Service,
 	syncSvc *syncsvc.Service,
 	jobRepo repository.JobRepository,
+	customerCacheRepo repository.CustomerCacheRepository,
 	dispatcher *Dispatcher,
 	notifSvc *notifsvc.Service,
 	log zerolog.Logger,
 ) *Processor {
 	return &Processor{
-		detector:     detector,
-		orchestrator: orchestrator,
-		snapshotSvc:  snapshotSvc,
-		syncSvc:      syncSvc,
-		jobRepo:      jobRepo,
-		dispatcher:   dispatcher,
-		notifSvc:     notifSvc,
-		log:          log,
+		detector:          detector,
+		orchestrator:      orchestrator,
+		snapshotSvc:       snapshotSvc,
+		syncSvc:           syncSvc,
+		jobRepo:           jobRepo,
+		customerCacheRepo: customerCacheRepo,
+		dispatcher:        dispatcher,
+		notifSvc:          notifSvc,
+		log:               log,
 	}
 }
 
@@ -223,6 +226,22 @@ func (p *Processor) processWPMerge(ctx context.Context, job *models.Job) error {
 		}
 		return err
 	}
+
+	// Remove secondary rows from the local cache. The WP plugin deletes the
+	// secondary WP user accounts after merge, so they will never re-appear in a
+	// sync payload. Without this cleanup the detector re-flags them as duplicates
+	// on the next scan because the cache still has their stale records.
+	if p.customerCacheRepo != nil {
+		for _, sid := range payload.SecondaryIDs {
+			if err := p.customerCacheRepo.DeleteByExternalID(ctx, merchantID, "wordpress", sid); err != nil {
+				p.log.Warn().Err(err).
+					Int64("secondary_id", sid).
+					Str("merchant_id", merchantID.String()).
+					Msg("wp merge: failed to remove secondary from cache — may re-appear in next scan")
+			}
+		}
+	}
+
 	if p.notifSvc != nil {
 		p.notifSvc.OnMergeComplete(ctx, merchantID, payload.PrimaryCustomerID, len(payload.SecondaryIDs))
 	}
