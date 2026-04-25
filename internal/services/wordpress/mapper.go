@@ -87,11 +87,12 @@ func guestExternalID(email string) int64 {
 }
 
 func buildWCAddress(c WCCustomer) json.RawMessage {
-	if c.City == "" && c.Postcode == "" && c.Country == "" {
+	if c.City == "" && c.StateProvince == "" && c.Postcode == "" && c.Country == "" {
 		return nil
 	}
 	b, _ := json.Marshal(models.OrderAddress{
 		City:    c.City,
+		State:   c.StateProvince,
 		Zip:     c.Postcode,
 		Country: c.Country,
 	})

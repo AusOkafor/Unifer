@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -642,15 +643,19 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 
 	// Enrich customers from WP platform cache.
 	type customerItem struct {
-		ID           int64     `json:"id"`
-		Name         string    `json:"name"`
-		Email        string    `json:"email"`
-		Phone        string    `json:"phone"`
-		OrdersCount  int       `json:"orders_count"`
-		TotalSpent   string    `json:"total_spent"`
-		AccountState string    `json:"account_state"`
+		ID           int64      `json:"id"`
+		Name         string     `json:"name"`
+		Email        string     `json:"email"`
+		Phone        string     `json:"phone"`
+		City         string     `json:"city"`
+		State        string     `json:"state"`
+		Postcode     string     `json:"postcode"`
+		Country      string     `json:"country"`
+		OrdersCount  int        `json:"orders_count"`
+		TotalSpent   string     `json:"total_spent"`
+		AccountState string     `json:"account_state"`
 		CreatedAt    *time.Time `json:"created_at"`
-		Tags         []string  `json:"tags"`
+		Tags         []string   `json:"tags"`
 	}
 	var customers []customerItem
 	for _, extID := range group.CustomerIDs {
@@ -667,18 +672,26 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 		if tags == nil {
 			tags = []string{}
 		}
-		state := cached.State
-		if state == "" {
-			state = "active"
+		accountState := cached.State
+		if accountState == "" {
+			accountState = "active"
+		}
+		var addr models.OrderAddress
+		if len(cached.AddressJSON) > 0 {
+			_ = json.Unmarshal(cached.AddressJSON, &addr)
 		}
 		customers = append(customers, customerItem{
 			ID:           extID,
 			Name:         cached.Name,
 			Email:        cached.Email,
 			Phone:        cached.Phone,
+			City:         addr.City,
+			State:        addr.State,
+			Postcode:     addr.Zip,
+			Country:      addr.Country,
 			OrdersCount:  cached.OrdersCount,
 			TotalSpent:   cached.TotalSpent,
-			AccountState: state,
+			AccountState: accountState,
 			CreatedAt:    cached.ShopifyCreatedAt,
 			Tags:         tags,
 		})

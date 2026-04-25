@@ -51,6 +51,7 @@ func (n NullableJSON) MarshalJSON() ([]byte, error) {
 type OrderAddress struct {
 	Street  string `json:"street"`
 	City    string `json:"city"`
+	State   string `json:"state"`
 	Zip     string `json:"zip"`
 	Country string `json:"country"`
 }
