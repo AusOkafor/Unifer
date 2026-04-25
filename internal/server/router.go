@@ -178,6 +178,7 @@ func (s *Server) registerRoutes() {
 	// WordPress merchant routes
 	if s.h.WP != nil {
 		wpapi := s.engine.Group("/api/wp")
+		wpapi.GET("/plugin/version", s.h.WP.PluginVersion)
 		wpapi.POST("/register", s.h.WP.Register)
 		wpapi.POST("/auth/refresh", s.h.WP.Refresh)
 

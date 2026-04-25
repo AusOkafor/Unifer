@@ -137,7 +137,7 @@ func main() {
 		merchantRepo, wpRefreshTokenRepo, wpSyncSvc,
 		dispatcher, encryptor,
 		duplicateRepo, customerCacheRepo, mergeRepo, settingsRepo, sqlDB,
-		cfg.WPJWTSecret, log,
+		cfg.WPJWTSecret, cfg.WPPluginVersion, cfg.WPPluginDownloadURL, log,
 	)
 
 	// --- Handlers ---

@@ -39,8 +39,10 @@ type WPHandler struct {
 	mergeRepo         repository.MergeRepository
 	settingsRepo      repository.SettingsRepository
 	db                *sqlx.DB
-	jwtSecret         string
-	log               zerolog.Logger
+	jwtSecret          string
+	pluginVersion      string
+	pluginDownloadURL  string
+	log                zerolog.Logger
 }
 
 func NewWPHandler(
@@ -52,10 +54,12 @@ func NewWPHandler(
 	duplicateRepo repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
 	mergeRepo repository.MergeRepository,
-	settingsRepo repository.SettingsRepository,
-	db *sqlx.DB,
-	jwtSecret string,
-	log zerolog.Logger,
+	settingsRepo      repository.SettingsRepository,
+	db                *sqlx.DB,
+	jwtSecret         string,
+	pluginVersion     string,
+	pluginDownloadURL string,
+	log               zerolog.Logger,
 ) *WPHandler {
 	return &WPHandler{
 		merchantRepo:      merchantRepo,
@@ -69,8 +73,23 @@ func NewWPHandler(
 		settingsRepo:      settingsRepo,
 		db:                db,
 		jwtSecret:         jwtSecret,
+		pluginVersion:     pluginVersion,
+		pluginDownloadURL: pluginDownloadURL,
 		log:               log,
 	}
+}
+
+// ─── Plugin version ──────────────────────────────────────────────────────────
+
+// PluginVersion handles GET /api/wp/plugin/version (unauthenticated).
+// The plugin polls this endpoint to drive WordPress's native update system.
+func (h *WPHandler) PluginVersion(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"version":      h.pluginVersion,
+		"download_url": h.pluginDownloadURL,
+		"requires_wp":  "6.0",
+		"requires_php": "7.4",
+	})
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────

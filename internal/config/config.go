@@ -21,6 +21,8 @@ type Config struct {
 	JWTSecret            string
 	FrontendURL          string
 	WPJWTSecret          string
+	WPPluginVersion      string // e.g. "1.0.9" — served by GET /api/wp/plugin/version
+	WPPluginDownloadURL  string // S3/GitHub URL for the plugin zip
 }
 
 func Load() (*Config, error) {
@@ -39,6 +41,8 @@ func Load() (*Config, error) {
 		EncryptionKey:        os.Getenv("ENCRYPTION_KEY"),
 		JWTSecret:            os.Getenv("JWT_SECRET"),
 		WPJWTSecret:          os.Getenv("WP_JWT_SECRET"),
+		WPPluginVersion:      getEnv("WP_PLUGIN_VERSION", "1.0.0"),
+		WPPluginDownloadURL:  os.Getenv("WP_PLUGIN_DOWNLOAD_URL"),
 		AppURL:               os.Getenv("APP_URL"),
 		Environment:          getEnv("ENVIRONMENT", "development"),
 		FrontendURL:          getEnv("FRONTEND_URL", "http://localhost:8080"),
