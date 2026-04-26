@@ -820,7 +820,8 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 	}
 
 	var req struct {
-		GroupID string `json:"group_id" binding:"required"`
+		GroupID     string `json:"group_id"     binding:"required"`
+		TriggeredBy string `json:"triggered_by"` // WP admin email or display name; optional
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -870,12 +871,17 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 		return
 	}
 
+	performedBy := strings.TrimSpace(req.TriggeredBy)
+	if performedBy == "" {
+		performedBy = "wp-admin"
+	}
+
 	payload := jobs.MergePayload{
 		MerchantID:        merchant.ID.String(),
 		GroupID:           req.GroupID,
 		PrimaryCustomerID: primaryID,
 		SecondaryIDs:      secondaryIDs,
-		PerformedBy:       merchant.ShopDomain,
+		PerformedBy:       performedBy,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(
