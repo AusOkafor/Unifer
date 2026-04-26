@@ -641,8 +641,8 @@ func anyExactOrderAddressMatch(as, bs []models.OrderAddress) bool {
 func anyPartialOrderAddressMatch(as, bs []models.OrderAddress) bool {
 	for _, a := range as {
 		for _, b := range bs {
-			addrA := strings.ToLower(strings.Join([]string{a.Street, a.City, a.Zip, a.Country}, " "))
-			addrB := strings.ToLower(strings.Join([]string{b.Street, b.City, b.Zip, b.Country}, " "))
+			addrA := strings.ToLower(strings.Join([]string{a.Address1, a.City, a.Zip, a.Country}, " "))
+			addrB := strings.ToLower(strings.Join([]string{b.Address1, b.City, b.Zip, b.Country}, " "))
 			if levenshteinSim(addrA, addrB) >= 0.85 {
 				return true
 			}

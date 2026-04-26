@@ -49,11 +49,12 @@ func (n NullableJSON) MarshalJSON() ([]byte, error) {
 }
 
 type OrderAddress struct {
-	Street  string `json:"street"`
-	City    string `json:"city"`
-	State   string `json:"state"`
-	Zip     string `json:"zip"`
-	Country string `json:"country"`
+	Address1 string `json:"address1"`
+	Address2 string `json:"address2"`
+	City     string `json:"city"`
+	State    string `json:"state"`
+	Zip      string `json:"zip"`
+	Country  string `json:"country"`
 }
 
 type CustomerCache struct {

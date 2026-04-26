@@ -215,7 +215,7 @@ func (s *CustomerService) FetchAll(ctx context.Context) ([]ShopifyCustomer, erro
 				for _, addr := range []*gqlOrderAddr{o.ShippingAddress, o.BillingAddress} {
 					if addr != nil && addr.City != "" {
 						sc.OrderAddresses = append(sc.OrderAddresses, models.OrderAddress{
-							Street: addr.Address1, City: addr.City,
+							Address1: addr.Address1, City: addr.City,
 							Zip: addr.Zip, Country: addr.CountryCode,
 						})
 					}

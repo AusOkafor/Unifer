@@ -24,6 +24,8 @@ type WCCustomer struct {
 	FirstName     string `json:"first_name"`      // billing first name
 	LastName      string `json:"last_name"`       // billing last name
 	Phone         string `json:"phone"`           // billing phone
+	Address1      string `json:"address1"`        // billing_address_1 from WP user meta
+	Address2      string `json:"address2"`        // billing_address_2 from WP user meta
 	City          string `json:"city"`            // billing city
 	StateProvince string `json:"state"`           // billing state/province
 	Postcode      string `json:"postcode"`        // billing postcode
@@ -87,14 +89,16 @@ func guestExternalID(email string) int64 {
 }
 
 func buildWCAddress(c WCCustomer) json.RawMessage {
-	if c.City == "" && c.StateProvince == "" && c.Postcode == "" && c.Country == "" {
+	if c.Address1 == "" && c.City == "" && c.StateProvince == "" && c.Postcode == "" && c.Country == "" {
 		return nil
 	}
 	b, _ := json.Marshal(models.OrderAddress{
-		City:    c.City,
-		State:   c.StateProvince,
-		Zip:     c.Postcode,
-		Country: c.Country,
+		Address1: c.Address1,
+		Address2: c.Address2,
+		City:     c.City,
+		State:    c.StateProvince,
+		Zip:      c.Postcode,
+		Country:  c.Country,
 	})
 	return b
 }

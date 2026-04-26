@@ -671,6 +671,8 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 		Name         string     `json:"name"`
 		Email        string     `json:"email"`
 		Phone        string     `json:"phone"`
+		Address1     string     `json:"address1"`
+		Address2     string     `json:"address2"`
 		City         string     `json:"city"`
 		State        string     `json:"state"`
 		Postcode     string     `json:"postcode"`
@@ -709,6 +711,8 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 			Name:         cached.Name,
 			Email:        cached.Email,
 			Phone:        cached.Phone,
+			Address1:     addr.Address1,
+			Address2:     addr.Address2,
 			City:         addr.City,
 			State:        addr.State,
 			Postcode:     addr.Zip,
