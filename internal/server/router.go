@@ -192,6 +192,7 @@ func (s *Server) registerRoutes() {
 		wpapiAuth.POST("/merge/execute", s.h.WP.ExecuteMerge)
 		wpapiAuth.GET("/merge/history", s.h.WP.MergeHistory)
 		wpapiAuth.GET("/snapshot/:id", s.h.WP.GetSnapshot)
+		wpapiAuth.GET("/jobs/:id", s.h.Job.Status)
 	}
 }
 
