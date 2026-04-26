@@ -191,6 +191,7 @@ func (s *Server) registerRoutes() {
 		wpapiAuth.POST("/duplicates/:id/dismiss", s.h.WP.DismissDuplicate)
 		wpapiAuth.POST("/merge/execute", s.h.WP.ExecuteMerge)
 		wpapiAuth.GET("/merge/history", s.h.WP.MergeHistory)
+		wpapiAuth.GET("/snapshot/:id", s.h.WP.GetSnapshot)
 	}
 }
 

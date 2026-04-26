@@ -18,11 +18,13 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"merger/backend/internal/api/dto"
+	billingpkg "merger/backend/internal/services/billing"
 	"merger/backend/internal/middleware"
 	"merger/backend/internal/models"
 	"merger/backend/internal/repository"
 	"merger/backend/internal/services/intelligence"
 	"merger/backend/internal/services/jobs"
+	snapshotsvc "merger/backend/internal/services/snapshot"
 	wpsvc "merger/backend/internal/services/wordpress"
 	"merger/backend/internal/utils"
 )
@@ -37,6 +39,7 @@ type WPHandler struct {
 	duplicateRepo     repository.DuplicateRepository
 	customerCacheRepo repository.CustomerCacheRepository
 	mergeRepo         repository.MergeRepository
+	snapshotSvc       *snapshotsvc.Service
 	settingsRepo      repository.SettingsRepository
 	db                *sqlx.DB
 	jwtSecret          string
@@ -46,14 +49,15 @@ type WPHandler struct {
 }
 
 func NewWPHandler(
-	merchantRepo repository.MerchantRepository,
-	refreshRepo repository.WPRefreshTokenRepository,
-	syncSvc *wpsvc.SyncService,
-	dispatcher *jobs.Dispatcher,
-	encryptor *utils.Encryptor,
-	duplicateRepo repository.DuplicateRepository,
+	merchantRepo      repository.MerchantRepository,
+	refreshRepo       repository.WPRefreshTokenRepository,
+	syncSvc           *wpsvc.SyncService,
+	dispatcher        *jobs.Dispatcher,
+	encryptor         *utils.Encryptor,
+	duplicateRepo     repository.DuplicateRepository,
 	customerCacheRepo repository.CustomerCacheRepository,
-	mergeRepo repository.MergeRepository,
+	mergeRepo         repository.MergeRepository,
+	snapshotSvc       *snapshotsvc.Service,
 	settingsRepo      repository.SettingsRepository,
 	db                *sqlx.DB,
 	jwtSecret         string,
@@ -70,6 +74,7 @@ func NewWPHandler(
 		duplicateRepo:     duplicateRepo,
 		customerCacheRepo: customerCacheRepo,
 		mergeRepo:         mergeRepo,
+		snapshotSvc:       snapshotSvc,
 		settingsRepo:      settingsRepo,
 		db:                db,
 		jwtSecret:         jwtSecret,
@@ -926,6 +931,7 @@ func (h *WPHandler) MergeHistory(c *gin.Context) {
 		OrdersMoved  int       `json:"orders_moved"`
 		MergedBy     string    `json:"merged_by"`
 		MergedAt     time.Time `json:"merged_at"`
+		SnapshotID   *string   `json:"snapshot_id"` // null when plan doesn't include snapshots
 	}
 
 	items := make([]historyItem, 0, len(records))
@@ -938,6 +944,12 @@ func (h *WPHandler) MergeHistory(c *gin.Context) {
 			primaryName = cached.Name
 		}
 
+		var snapID *string
+		if r.SnapshotID != nil {
+			s := r.SnapshotID.String()
+			snapID = &s
+		}
+
 		items = append(items, historyItem{
 			PrimaryID:    r.PrimaryCustomerID,
 			PrimaryName:  primaryName,
@@ -945,12 +957,99 @@ func (h *WPHandler) MergeHistory(c *gin.Context) {
 			OrdersMoved:  r.OrdersMoved,
 			MergedBy:     r.PerformedBy,
 			MergedAt:     r.CreatedAt,
+			SnapshotID:   snapID,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"total":   total,
 		"records": items,
+	})
+}
+
+// ─── Snapshot ────────────────────────────────────────────────────────────────
+
+// GetSnapshot handles GET /api/wp/snapshot/:id.
+// Returns the pre-merge customer data captured before the merge executed.
+// This is a read-only audit view — WP merges are irreversible (the secondary
+// WP user account was deleted by the plugin). The data can be used to manually
+// reconstruct the account if needed.
+func (h *WPHandler) GetSnapshot(c *gin.Context) {
+	merchant := middleware.GetMerchant(c)
+	if merchant == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		if !billingpkg.IsFeatureEnabled(settings.Plan, billingpkg.FeatureSnapshots) {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "FEATURE_NOT_AVAILABLE",
+				"message": "Snapshots are available on the Basic plan and above.",
+				"plan":    settings.Plan,
+			})
+			return
+		}
+	}
+
+	snapshotID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid snapshot id"})
+		return
+	}
+
+	snap, data, err := h.snapshotSvc.Get(c.Request.Context(), snapshotID)
+	if err != nil {
+		if errors.Is(err, snapshotsvc.ErrSnapshotNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "snapshot not found"})
+			return
+		}
+		h.log.Error().Err(err).Str("snapshot_id", snapshotID.String()).Msg("wp snapshot get")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load snapshot"})
+		return
+	}
+
+	if snap.MerchantID != merchant.ID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	type snapshotCustomer struct {
+		UserID      int64    `json:"user_id"`
+		Name        string   `json:"name"`
+		Email       string   `json:"email"`
+		Phone       string   `json:"phone"`
+		OrdersCount int      `json:"orders_count"`
+		TotalSpent  string   `json:"total_spent"`
+		Tags        []string `json:"tags"`
+	}
+
+	customers := make([]snapshotCustomer, 0, len(data.Customers))
+	for _, sc := range data.Customers {
+		name := strings.TrimSpace(sc.FirstName + " " + sc.LastName)
+		var tags []string
+		for _, t := range strings.Split(sc.Tags, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tags = append(tags, t)
+			}
+		}
+		customers = append(customers, snapshotCustomer{
+			UserID:      sc.ID,
+			Name:        name,
+			Email:       sc.Email,
+			Phone:       sc.Phone,
+			OrdersCount: sc.OrdersCount,
+			TotalSpent:  sc.TotalSpent,
+			Tags:        tags,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"snapshot_id": snap.ID.String(),
+		"created_at":  snap.CreatedAt,
+		"note":        "Pre-merge state. The secondary WP account was permanently deleted — this data is for audit and manual recovery only.",
+		"customers":   customers,
 	})
 }
 

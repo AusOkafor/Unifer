@@ -136,7 +136,8 @@ func main() {
 	wpHandler := handlers.NewWPHandler(
 		merchantRepo, wpRefreshTokenRepo, wpSyncSvc,
 		dispatcher, encryptor,
-		duplicateRepo, customerCacheRepo, mergeRepo, settingsRepo, sqlDB,
+		duplicateRepo, customerCacheRepo, mergeRepo,
+		snapshotSvc, settingsRepo, sqlDB,
 		cfg.WPJWTSecret, cfg.WPPluginVersion, cfg.WPPluginDownloadURL, log,
 	)
 
