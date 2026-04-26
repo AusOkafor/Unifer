@@ -756,20 +756,46 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 				}
 			}
 
+			// Split breakdown reasons into positive and negative signal arrays.
+			// Negative reasons contain words like "differ" or "different".
+			// Risk flags from the report are always negative signals.
+			positive := make([]string, 0)
+			negative := make([]string, 0)
+			if report.Breakdown != nil {
+				for _, r := range report.Breakdown.Reasons {
+					lower := strings.ToLower(r.Text)
+					if strings.Contains(lower, "differ") || strings.Contains(lower, "different") {
+						negative = append(negative, r.Text)
+					} else {
+						positive = append(positive, r.Text)
+					}
+				}
+			}
+			for _, flag := range report.RiskFlags {
+				negative = append(negative, flag)
+			}
+
 			intellResult = gin.H{
-				"summary":   report.Summary,
-				"conflicts": conflicts,
-				"breakdown": breakdown,
-				"reasoning": reasoning,
+				"summary":           report.Summary,
+				"confidence_reason": report.Summary,
+				"conflicts":         conflicts,
+				"breakdown":         breakdown,
+				"reasoning":         reasoning,
+				"signals": gin.H{
+					"positive": positive,
+					"negative": negative,
+				},
 			}
 		}
 	}
 	if intellResult == nil {
 		intellResult = gin.H{
-			"summary":   "",
-			"conflicts": []string{},
-			"breakdown": gin.H{"email": 0, "name": 0, "phone": 0, "address": 0},
-			"reasoning": []string{},
+			"summary":           "",
+			"confidence_reason": "",
+			"conflicts":         []string{},
+			"breakdown":         gin.H{"email": 0, "name": 0, "phone": 0, "address": 0},
+			"reasoning":         []string{},
+			"signals":           gin.H{"positive": []string{}, "negative": []string{}},
 		}
 	}
 
@@ -880,12 +906,20 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 		performedBy = "wp-admin"
 	}
 
+	// Load the merchant's current plan so the orchestrator can gate
+	// plan-only features (e.g. snapshot creation requires Basic+).
+	plan := ""
+	if settings, err := h.settingsRepo.Get(c.Request.Context(), merchant.ID); err == nil {
+		plan = settings.Plan
+	}
+
 	payload := jobs.MergePayload{
 		MerchantID:        merchant.ID.String(),
 		GroupID:           req.GroupID,
 		PrimaryCustomerID: primaryID,
 		SecondaryIDs:      secondaryIDs,
 		PerformedBy:       performedBy,
+		Plan:              plan,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(
