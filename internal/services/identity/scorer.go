@@ -73,6 +73,12 @@ type Signals struct {
 	// ── Negative behavioral signals ──────────────────────────────────────────
 	OrderNameConflict    bool // order names on each side that clearly differ (JW ≤ 0.70)
 	OrderAddressConflict bool // order addresses from different countries
+
+	// ── Supporting evidence ──────────────────────────────────────────────────
+	// NoteShared is a weak positive when both customers left the exact same
+	// non-trivial checkout note (≥ 10 chars). Never used as a blocker and
+	// never triggers a negative signal when notes differ.
+	NoteShared bool
 }
 
 // ScoreOptions controls which identity signals contribute to scoring.
@@ -266,6 +272,13 @@ func extractSignals(
 		s.OrderAddressConflict = anyConflictingOrderCountries(orderAddrsA, orderAddrsB)
 	}
 
+	// Note signal — weak positive when both customers left the exact same
+	// non-trivial checkout note. 10-char minimum filters out single words like
+	// "ok" while still catching short logistics notes like "leave at door".
+	noteA := strings.ToLower(strings.TrimSpace(a.Note))
+	noteB := strings.ToLower(strings.TrimSpace(b.Note))
+	s.NoteShared = noteA != "" && noteB != "" && len(noteA) >= 10 && noteA == noteB
+
 	return s
 }
 
@@ -422,11 +435,15 @@ func computeBaseRules(s Signals) float64 {
 //   address 30% — strong physical anchor
 //   email 20% — useful but spoofable / disposable
 //   phone 10% — often missing or shared
+//   note  +0.04 — weak supporting evidence only; cannot create a match alone
 func computeFallback(sig Signals, nameSim, addrSim, emailSim, phoneSim float64) float64 {
 	if !sig.NameMedium && !sig.NameHigh {
 		return 0
 	}
 	score := 0.4*nameSim + 0.3*addrSim + 0.2*emailSim + 0.1*phoneSim
+	if sig.NoteShared {
+		score += 0.04
+	}
 	const cap = 0.64
 	if score > cap {
 		return cap

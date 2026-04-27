@@ -184,6 +184,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 						RecentOrderOverlap:   topPair.Sig.RecentOrderOverlap,
 						OrderNameConflict:    topPair.Sig.OrderNameConflict,
 						OrderAddressConflict: topPair.Sig.OrderAddressConflict,
+						NoteShared:           topPair.Sig.NoteShared,
 					}
 					report.ConfidenceSource = topPair.ConfidenceSource
 				}

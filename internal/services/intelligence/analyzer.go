@@ -30,8 +30,9 @@ type BehavioralSignals struct {
 	OrderAddressPartial bool `json:"order_address_partial"`
 	OrderNameHigh       bool `json:"order_name_high"`
 	RecentOrderOverlap  bool `json:"recent_order_overlap"`
-	OrderNameConflict    bool `json:"order_name_conflict"`
+	OrderNameConflict   bool `json:"order_name_conflict"`
 	OrderAddressConflict bool `json:"order_address_conflict"`
+	NoteShared          bool `json:"note_shared"` // both customers left an identical non-trivial checkout note
 }
 
 // IntelligenceReport is the full pre-merge analysis stored against a duplicate group.

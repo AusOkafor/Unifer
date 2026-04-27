@@ -34,6 +34,7 @@ type WCCustomer struct {
 	RegisteredAt  string `json:"registered_at"`   // ISO 8601 account creation; empty for guests
 	OrderCount    int    `json:"order_count"`     // total orders from wc_get_orders()
 	TotalSpent    string `json:"total_spent"`     // sum of order totals
+	CustomerNote  string `json:"customer_note"`   // most recent non-empty checkout note; "" when none
 }
 
 // MapWCCustomerToCustomerCache converts a WCCustomer into a CustomerCache row.
@@ -71,6 +72,7 @@ func MapWCCustomerToCustomerCache(merchantID uuid.UUID, c WCCustomer) *models.Cu
 		AddressJSON:       models.NullableJSON(addr),
 		OrdersCount:       c.OrderCount,
 		TotalSpent:        c.TotalSpent,
+		Note:              c.CustomerNote,
 		State:             c.Role, // "administrator" is blocked by WPValidator
 		ShopifyCreatedAt:  createdAt,
 		OrderAddresses:    nil, // no per-order address history in WC sync v1

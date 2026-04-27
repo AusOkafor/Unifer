@@ -682,6 +682,7 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 		AccountState string     `json:"account_state"`
 		CreatedAt    *time.Time `json:"created_at"`
 		Tags         []string   `json:"tags"`
+		CustomerNote string     `json:"customer_note"` // most recent checkout note; "" when none
 	}
 	var customers []customerItem
 	for _, extID := range group.CustomerIDs {
@@ -722,6 +723,7 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 			AccountState: accountState,
 			CreatedAt:    cached.ShopifyCreatedAt,
 			Tags:         tags,
+			CustomerNote: cached.Note,
 		})
 	}
 	if customers == nil {
@@ -773,6 +775,9 @@ func (h *WPHandler) GetDuplicate(c *gin.Context) {
 			}
 			for _, flag := range report.RiskFlags {
 				negative = append(negative, flag)
+			}
+			if report.BehavioralSignals != nil && report.BehavioralSignals.NoteShared {
+				positive = append(positive, "Identical order note")
 			}
 
 			intellResult = gin.H{
