@@ -47,6 +47,7 @@ type updateSettingsRequest struct {
 	NotificationsEnabled *bool `json:"notifications_enabled"`
 	// Detection
 	ScanFrequency *string `json:"scan_frequency"`
+	ScanHour      *int    `json:"scan_hour"`
 	SignalEmail   *bool   `json:"signal_email"`
 	SignalPhone   *bool   `json:"signal_phone"`
 	SignalAddress *bool   `json:"signal_address"`
@@ -107,6 +108,14 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 	}
 	if req.ScanFrequency != nil {
 		s.ScanFrequency = *req.ScanFrequency
+	}
+	if req.ScanHour != nil {
+		h := *req.ScanHour
+		if h < 0 || h > 23 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scan_hour must be 0–23"})
+			return
+		}
+		s.ScanHour = h
 	}
 	if req.SignalEmail != nil {
 		s.SignalEmail = *req.SignalEmail
@@ -212,6 +221,7 @@ func settingsResponse(s *models.MerchantSettings) gin.H {
 		"retention_days":         s.RetentionDays,
 		"notifications_enabled":  s.NotificationsEnabled,
 		"scan_frequency":         s.ScanFrequency,
+		"scan_hour":              s.ScanHour,
 		"signal_email":           s.SignalEmail,
 		"signal_phone":           s.SignalPhone,
 		"signal_address":         s.SignalAddress,

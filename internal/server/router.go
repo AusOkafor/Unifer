@@ -186,6 +186,10 @@ func (s *Server) registerRoutes() {
 		wpapiAuth.Use(middleware.AuthRequiredWordPress(s.wpJWTSecret, s.merchantRepo, s.log))
 		wpapiAuth.POST("/customers/sync", s.h.WP.SyncUsers)
 		wpapiAuth.GET("/metrics/dashboard", s.h.WP.Dashboard)
+		if s.h.Settings != nil {
+			wpapiAuth.GET("/settings", s.h.Settings.Get)
+			wpapiAuth.PUT("/settings", s.h.Settings.Update)
+		}
 		wpapiAuth.GET("/duplicates", s.h.WP.ListDuplicates)
 		wpapiAuth.GET("/duplicates/:id", s.h.WP.GetDuplicate)
 		wpapiAuth.POST("/duplicates/:id/dismiss", s.h.WP.DismissDuplicate)
