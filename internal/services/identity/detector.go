@@ -54,16 +54,16 @@ func NewDetector(
 }
 
 // RunDetection loads all customers for the merchant, scores pairs, clusters them,
-// and upserts duplicate_groups into the database.
-func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error {
+// and upserts duplicate_groups into the database. Returns the number of groups persisted.
+func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) (int, error) {
 	customers, err := d.customerCacheRepo.FindByMerchant(ctx, merchantID)
 	if err != nil {
-		return fmt.Errorf("load customers: %w", err)
+		return 0, fmt.Errorf("load customers: %w", err)
 	}
 
 	if len(customers) < 2 {
 		d.log.Debug().Str("merchant", merchantID.String()).Msg("too few customers to detect duplicates")
-		return nil
+		return 0, nil
 	}
 
 	d.log.Info().Int("count", len(customers)).Str("merchant", merchantID.String()).Msg("running detection")
@@ -269,7 +269,7 @@ func (d *Detector) RunDetection(ctx context.Context, merchantID uuid.UUID) error
 	}
 
 	d.log.Info().Int("groups", persisted).Str("merchant", merchantID.String()).Msg("detection complete")
-	return nil
+	return persisted, nil
 }
 
 // scorePairs generates scored pairs using three bucket strategies:

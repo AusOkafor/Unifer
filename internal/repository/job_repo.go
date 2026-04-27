@@ -65,7 +65,7 @@ func (r *jobRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status string,
 	}
 
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = $1, result = $2, updated_at = NOW() WHERE id = $3`,
+		`UPDATE jobs SET status = $1, result = COALESCE($2, result), updated_at = NOW() WHERE id = $3`,
 		status, resultJSON, id,
 	)
 	if err != nil {

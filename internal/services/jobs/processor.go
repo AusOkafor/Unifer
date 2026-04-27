@@ -143,9 +143,17 @@ func (p *Processor) processDetect(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return fmt.Errorf("invalid merchant id: %w", err)
 	}
-	if err := p.detector.RunDetection(ctx, merchantID); err != nil {
+	groupsFound, err := p.detector.RunDetection(ctx, merchantID)
+	if err != nil {
 		return err
 	}
+
+	// Write group count to the job record so the plugin can display the correct
+	// count in its completion notification. The worker will call UpdateStatus with
+	// nil result afterwards; COALESCE in the SQL ensures it does not overwrite this.
+	p.jobRepo.UpdateStatus(ctx, job.ID, models.JobStatusCompleted,
+		map[string]interface{}{"groups_found": groupsFound})
+
 	// Notify after successful detection (non-blocking — best-effort).
 	if p.notifSvc != nil {
 		p.notifSvc.OnDetectComplete(ctx, merchantID)
