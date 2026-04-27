@@ -59,6 +59,7 @@ func hasStrongSignal(s Signals) bool {
 		s.PhoneExact ||
 		s.OrderAddressExact ||
 		s.AddressExact ||
+		(s.AddressPartial && s.NameHigh) || // scorer Tier 3: 0.76 base — sync with computeBaseRules
 		(s.OrderAddressPartial && s.NameHigh) ||
 		(s.EmailLocalExact && s.NameHigh) ||
 		(s.PhoneSuffix && s.NameHigh)
