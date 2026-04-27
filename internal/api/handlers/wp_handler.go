@@ -194,6 +194,38 @@ func (h *WPHandler) Refresh(c *gin.Context) {
 	})
 }
 
+// ─── Scan ────────────────────────────────────────────────────────────────────
+
+// TriggerScan handles POST /api/wp/scan.
+// Dispatches a detect_duplicates job against the current customer cache.
+// It does NOT trigger a Shopify sync — WP customers are pushed by the plugin
+// via POST /api/wp/customers/sync, so detection-only is the correct operation.
+func (h *WPHandler) TriggerScan(c *gin.Context) {
+	merchant := middleware.GetMerchant(c)
+	if merchant == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	jobID, err := h.dispatcher.Dispatch(
+		c.Request.Context(),
+		models.JobTypeDetectDuplicates,
+		merchant.ID,
+		map[string]string{"merchant_id": merchant.ID.String()},
+	)
+	if err != nil {
+		h.log.Error().Err(err).Str("merchant_id", merchant.ID.String()).Msg("wp scan: dispatch failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue scan"})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"job_id":  jobID.String(),
+		"status":  "queued",
+		"message": "Duplicate detection started — results will be available once the job completes.",
+	})
+}
+
 // ─── Sync ────────────────────────────────────────────────────────────────────
 
 // SyncUsers handles POST /api/wp/customers/sync.

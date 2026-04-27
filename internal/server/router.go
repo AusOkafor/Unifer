@@ -197,9 +197,7 @@ func (s *Server) registerRoutes() {
 		wpapiAuth.GET("/merge/history", s.h.WP.MergeHistory)
 		wpapiAuth.GET("/snapshot/:id", s.h.WP.GetSnapshot)
 		wpapiAuth.GET("/jobs/:id", s.h.Job.Status)
-		if s.h.Scan != nil {
-			wpapiAuth.POST("/scan", s.h.Scan.Trigger)
-		}
+		wpapiAuth.POST("/scan", s.h.WP.TriggerScan)
 	}
 }
 
