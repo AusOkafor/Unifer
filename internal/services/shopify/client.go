@@ -140,6 +140,16 @@ func (c *Client) doGraphQL(ctx context.Context, query string, variables map[stri
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("shopify graphql server error: %d", resp.StatusCode)
 		}
+		if resp.StatusCode >= 400 {
+			// Shopify returns HTML for 401/403 — read raw body for a useful error message
+			// instead of letting the JSON decoder hit '<' and produce a confusing error.
+			respBody, _ := io.ReadAll(resp.Body)
+			snippet := string(respBody)
+			if len(snippet) > 200 {
+				snippet = snippet[:200]
+			}
+			return fmt.Errorf("shopify graphql error %d: %s", resp.StatusCode, snippet)
+		}
 
 		var gqlResp struct {
 			Data   json.RawMessage `json:"data"`
