@@ -71,14 +71,21 @@ func (v *WPValidator) Validate(_ context.Context, customers []models.CustomerCac
 	}
 
 	// Block on email domain mismatch — different domains almost always mean different people.
-	if len(domains) > 1 {
+	// Exception: when the local parts are identical or near-identical the domain difference
+	// is almost certainly a typo (e.g. gmail.com vs gamil.com). The scorer already surfaces
+	// this as EmailLocalExact/EmailLocalFuzzy — don't re-block what the scorer approved.
+	if len(domains) > 1 && len(customers) > 1 {
 		first := domains[0]
-		for _, d := range domains[1:] {
+		for i, d := range domains[1:] {
 			if d != first {
-				return fmt.Errorf(
-					"merge blocked: email domain mismatch (%s vs %s) — verify these are the same person",
-					first, d,
-				)
+				localA := emailLocalPart(customers[0].Email)
+				localB := emailLocalPart(customers[i+1].Email)
+				if localSimilarity(localA, localB) < 0.92 {
+					return fmt.Errorf(
+						"merge blocked: email domain mismatch (%s vs %s) — verify these are the same person",
+						first, d,
+					)
+				}
 			}
 		}
 	}
@@ -106,4 +113,53 @@ func emailDomain(email string) string {
 		return strings.ToLower(parts[1])
 	}
 	return ""
+}
+
+func emailLocalPart(email string) string {
+	parts := strings.SplitN(strings.ToLower(email), "@", 2)
+	return parts[0]
+}
+
+// localSimilarity returns a 0–1 Levenshtein similarity between two strings.
+// Used to detect typo email domains: if the local parts are near-identical the
+// domain difference is treated as a typing error, not a different person.
+func localSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return 0.0
+	}
+	// Levenshtein distance
+	la, lb := len(a), len(b)
+	dp := make([][]int, la+1)
+	for i := range dp {
+		dp[i] = make([]int, lb+1)
+		dp[i][0] = i
+	}
+	for j := 0; j <= lb; j++ {
+		dp[0][j] = j
+	}
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			d := dp[i-1][j] + 1
+			if dp[i][j-1]+1 < d {
+				d = dp[i][j-1] + 1
+			}
+			if dp[i-1][j-1]+cost < d {
+				d = dp[i-1][j-1] + cost
+			}
+			dp[i][j] = d
+		}
+	}
+	dist := dp[la][lb]
+	max := la
+	if lb > max {
+		max = lb
+	}
+	return 1.0 - float64(dist)/float64(max)
 }
