@@ -30,7 +30,7 @@ type snapshotService interface {
 // without making real Shopify API calls, and so alternate platform
 // executors (e.g. WordPress) can be plugged in via SetExecutorFactory.
 type MergeExecutor interface {
-	Execute(ctx context.Context, primaryID int64, secondaryIDs []int64) (*ExecuteResult, error)
+	Execute(ctx context.Context, primaryID int64, secondaryIDs []int64, fieldOverrides map[string]string) (*ExecuteResult, error)
 }
 
 // ExecutorFactory builds a MergeExecutor for a given merchant's credentials.
@@ -54,7 +54,11 @@ type MergeRequest struct {
 	OverrideDisabled bool
 	// Plan is the merchant's billing plan — used to gate plan-only operations
 	// (e.g. snapshot creation). Empty string is treated as PlanFree.
-	Plan             string
+	Plan string
+	// FieldOverrides are the field selections from the Merge Composer UI.
+	// Keys are field names (e.g. "email", "name", "phone"); values are the
+	// chosen value. Passed to the executor so the platform can apply them.
+	FieldOverrides map[string]string
 }
 
 // Orchestrator coordinates the full merge pipeline:
@@ -176,7 +180,7 @@ func (o *Orchestrator) Execute(ctx context.Context, req MergeRequest) error {
 	// Step 4: Execute via Shopify customerMerge GraphQL.
 	log.Info().Msg("merge: executing customerMerge")
 	executor := o.newExecutor(merchant.ShopDomain, token, log)
-	result, err := executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs)
+	result, err := executor.Execute(ctx, req.PrimaryCustomerID, req.SecondaryIDs, req.FieldOverrides)
 	if err != nil {
 		if snap != nil {
 			log.Error().Err(err).Str("snapshot_id", snap.ID.String()).

@@ -38,7 +38,7 @@ func NewExecutor(
 	}
 }
 
-func (e *Executor) Execute(ctx context.Context, primaryID int64, secondaryIDs []int64) (*mergesvc.ExecuteResult, error) {
+func (e *Executor) Execute(ctx context.Context, primaryID int64, secondaryIDs []int64, fieldOverrides map[string]string) (*mergesvc.ExecuteResult, error) {
 	// Resolve the merchant so we can scope the cache lookup.
 	merchant, err := e.merchantRepo.FindByDomain(ctx, e.siteURL)
 	if err != nil {
@@ -68,8 +68,9 @@ func (e *Executor) Execute(ctx context.Context, primaryID int64, secondaryIDs []
 	}
 
 	result, err := e.client.MergeCustomers(ctx, WCMergeRequest{
-		Primary:     primary,
-		Secondaries: secondaries,
+		Primary:        primary,
+		Secondaries:    secondaries,
+		FieldOverrides: fieldOverrides,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wp executor: %w", err)

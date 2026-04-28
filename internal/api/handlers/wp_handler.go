@@ -887,8 +887,10 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 	}
 
 	var req struct {
-		GroupID     string `json:"group_id"     binding:"required"`
-		TriggeredBy string `json:"triggered_by"` // WP admin email or display name; optional
+		GroupID           string            `json:"group_id"            binding:"required"`
+		TriggeredBy       string            `json:"triggered_by"`        // WP admin email or display name; optional
+		PrimaryCustomerID int64             `json:"primary_customer_id"` // 0 = derive from intelligence report
+		FieldOverrides    map[string]string `json:"field_overrides"`     // Merge Composer field selections
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -916,11 +918,13 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 		return
 	}
 
-	// Derive primary from intelligence report; fall back to first customer ID.
-	var primaryID int64
-	if len(g.IntelligenceJSON) > 0 {
-		if report, err := intelligence.FromRawJSON(g.IntelligenceJSON); err == nil {
-			primaryID = report.RecommendedPrimary
+	// Derive primary: explicit selection from Merge Composer > intelligence report > first customer.
+	primaryID := req.PrimaryCustomerID
+	if primaryID == 0 {
+		if len(g.IntelligenceJSON) > 0 {
+			if report, err := intelligence.FromRawJSON(g.IntelligenceJSON); err == nil {
+				primaryID = report.RecommendedPrimary
+			}
 		}
 	}
 	if primaryID == 0 && len(g.CustomerIDs) > 0 {
@@ -957,6 +961,7 @@ func (h *WPHandler) ExecuteMerge(c *gin.Context) {
 		SecondaryIDs:      secondaryIDs,
 		PerformedBy:       performedBy,
 		Plan:              plan,
+		FieldOverrides:    req.FieldOverrides,
 	}
 
 	jobID, err := h.dispatcher.Dispatch(

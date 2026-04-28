@@ -36,10 +36,13 @@ type MergePayload struct {
 	PerformedBy       string  `json:"performed_by"`
 	// OverrideDisabled records that the user explicitly bypassed the
 	// disabled_account hard block. Passed to the orchestrator for audit logging.
-	OverrideDisabled bool   `json:"override_disabled"`
+	OverrideDisabled bool `json:"override_disabled"`
 	// Plan is the merchant's billing plan at dispatch time, forwarded to the
 	// orchestrator so it can gate plan-only operations (e.g. snapshot creation).
-	Plan             string `json:"plan"`
+	Plan string `json:"plan"`
+	// FieldOverrides carries Merge Composer field selections from the admin UI.
+	// Passed through to the platform executor so the chosen values are applied.
+	FieldOverrides map[string]string `json:"field_overrides,omitempty"`
 }
 
 // RestorePayload is the job payload for restore_snapshot jobs.
@@ -185,6 +188,7 @@ func (p *Processor) processMerge(ctx context.Context, job *models.Job) error {
 		PerformedBy:       payload.PerformedBy,
 		OverrideDisabled:  payload.OverrideDisabled,
 		Plan:              payload.Plan,
+		FieldOverrides:    payload.FieldOverrides,
 	}
 
 	if err := p.orchestrator.Execute(ctx, req); err != nil {
@@ -226,6 +230,7 @@ func (p *Processor) processWPMerge(ctx context.Context, job *models.Job) error {
 		PerformedBy:       payload.PerformedBy,
 		OverrideDisabled:  payload.OverrideDisabled,
 		Plan:              payload.Plan,
+		FieldOverrides:    payload.FieldOverrides,
 	}
 
 	if err := p.wpOrchestrator.Execute(ctx, req); err != nil {

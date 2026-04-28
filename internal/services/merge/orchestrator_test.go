@@ -78,7 +78,7 @@ type fakeExecutor struct {
 	token     string
 }
 
-func (f *fakeExecutor) Execute(_ context.Context, _ int64, _ []int64) (*ExecuteResult, error) {
+func (f *fakeExecutor) Execute(_ context.Context, _ int64, _ []int64, _ map[string]string) (*ExecuteResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.callCount++

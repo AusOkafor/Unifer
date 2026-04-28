@@ -34,9 +34,13 @@ type WCCustomerRef struct {
 // WCMergeRequest is the body sent to POST /wp-json/mergeiq/v1/merge.
 // The plugin reassigns orders from all Secondaries to Primary, merges metadata,
 // and disables (not deletes) secondary user accounts.
+// FieldOverrides carries the Merge Composer field selections from the WP admin UI.
+// Keys match WooCommerce user meta keys (e.g. "billing_email", "billing_first_name");
+// values are the chosen value. Plugin applies these after order reassignment.
 type WCMergeRequest struct {
-	Primary     WCCustomerRef   `json:"primary"`
-	Secondaries []WCCustomerRef `json:"secondaries"`
+	Primary        WCCustomerRef     `json:"primary"`
+	Secondaries    []WCCustomerRef   `json:"secondaries"`
+	FieldOverrides map[string]string `json:"field_overrides,omitempty"`
 }
 
 // WCMergeResult is the response from POST /wp-json/mergeiq/v1/merge.

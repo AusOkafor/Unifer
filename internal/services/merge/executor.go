@@ -27,7 +27,7 @@ func NewExecutor(customerSvc *shopifysvc.CustomerService) *Executor {
 // For multi-way merges (>2 customers), it performs sequential pairwise merges:
 //
 //	primary ← secondary[0], then primary ← secondary[1], etc.
-func (e *Executor) Execute(ctx context.Context, primaryID int64, secondaryIDs []int64) (*ExecuteResult, error) {
+func (e *Executor) Execute(ctx context.Context, primaryID int64, secondaryIDs []int64, _ map[string]string) (*ExecuteResult, error) {
 	primaryGID := shopifysvc.ShopifyIDToGID(primaryID)
 
 	for i, secondaryID := range secondaryIDs {
